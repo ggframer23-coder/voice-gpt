@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help clean venv install install-cli install-faster install-cpu install-cli-cpu install-faster-cpu init transcribe ingest-dir query add-text guard-voice-gpt
+.PHONY: help clean venv install install-cli install-faster install-cpu install-cli-cpu install-faster-cpu install-whisper download-model benchmark init transcribe reingest ingest-dir query add-text guard-voice-gpt guard-whisper-bin guard-whisper-src guard-model-file
 
 SHELL := /usr/bin/env bash
 
@@ -12,6 +12,13 @@ TORCH_CPU_INDEX ?= https://download.pytorch.org/whl/cpu
 PYPI_INDEX ?= https://pypi.org/simple
 TORCH_CPU_SPEC ?= torch==2.9.1+cpu
 CPU_CONSTRAINTS ?= constraints-cpu.txt
+WHISPER_DIR ?= third_party/whisper.cpp
+WHISPER_BIN ?= $(WHISPER_DIR)/build/bin/whisper-cli
+WHISPER_MODELS_DIR ?= $(WHISPER_DIR)/models
+MODEL_NAME ?= base.en
+MODEL ?= $(if $(filter faster-whisper,$(ENGINE)),$(MODEL_NAME),$(WHISPER_MODELS_DIR)/ggml-$(MODEL_NAME).bin)
+EXTENSIONS ?= wav,mp3,m4a,flac,ogg,opus,webm
+BENCH_OUTPUT_DIR ?= /tmp/voice-gpt-bench
 
 AUDIO ?= audio
 MODEL ?= base.en
@@ -64,11 +71,15 @@ help:
 	@ echo "  install             Install library (editable)"
 	@ echo "  install-cli         Install CLI extra (editable)"
 	@ echo "  install-faster      Install faster-whisper extra (editable)"
+	@ echo "  install-whisper     Build whisper.cpp (sets WHISPER_BIN path)"
+	@ echo "  download-model      Download a whisper.cpp ggml model"
+	@ echo "  benchmark           Compare whisper.cpp vs faster-whisper timing"
 	@ echo "  install-cpu         Install CPU-only torch, then library"
 	@ echo "  install-cli-cpu     Install CPU-only torch, then CLI extra"
 	@ echo "  install-faster-cpu  Install CPU-only torch, then CLI+faster"
 	@ echo "  init                Initialize storage (~/.voice-gpt by default)"
 	@ echo "  transcribe          Transcribe AUDIO with MODEL"
+	@ echo "  reingest            Force transcribe even if already ingested"
 	@ echo "  ingest-dir          Ingest INPUT_DIR with MODEL"
 	@ echo "  query               Search memories"
 	@ echo "  add-text            Add text entry"
@@ -77,7 +88,10 @@ help:
 	@ echo "  make venv install-cli"
 	@ echo "  make transcribe AUDIO=/path/a.wav MODEL=/path/model.gguf"
 	@ echo "  make transcribe AUDIO=/path/a.wav MODEL=base.en ENGINE=faster-whisper"
+	@ echo "  make install-whisper download-model MODEL_NAME=base.en"
 	@ echo "  make ingest-dir INPUT_DIR=/path/audio MODEL=/path/model.gguf ARCHIVE_DIR=/path/processed"
+	@ echo "  make reingest AUDIO=/path/audio MODEL=/path/model.gguf"
+	@ echo "  make benchmark AUDIO=/path/audio.wav MODEL_NAME=base.en"
 	@ echo "  make query QUERY='memory pipeline' K=5"
 	@ echo "  make add-text TEXT='Today I worked on the memory pipeline.'"
 
@@ -96,6 +110,16 @@ install-cli:
 install-faster:
 	$(UV_CMD) pip install -e ".[cli,faster]"
 
+install-whisper:
+	WHISPER_DIR=$(WHISPER_DIR) bash scripts/install_whisper_cpp.sh
+
+download-model: guard-whisper-src
+	mkdir -p $(WHISPER_MODELS_DIR)
+	sh $(WHISPER_DIR)/models/download-ggml-model.sh $(MODEL_NAME) $(WHISPER_MODELS_DIR)
+
+benchmark: guard-voice-gpt guard-whisper-bin guard-AUDIO
+	AUDIO=$(AUDIO) VOICE_GPT=$(VOICE_GPT) WHISPER_BIN=$(WHISPER_BIN) WHISPER_DIR=$(WHISPER_DIR) MODEL_NAME=$(MODEL_NAME) OUTPUT_DIR=$(BENCH_OUTPUT_DIR) NO_CONVERT=$(NO_CONVERT) bash scripts/benchmark_transcribe.sh
+
 install-cpu:
 	$(UV_CMD) pip install --index-url $(TORCH_CPU_INDEX) $(TORCH_CPU_SPEC)
 	$(UV_CMD) pip install -e . --index-url $(PYPI_INDEX) --extra-index-url $(TORCH_CPU_INDEX) --constraint $(CPU_CONSTRAINTS)
@@ -111,14 +135,52 @@ install-faster-cpu:
 guard-voice-gpt:
 	@ if [ ! -x "$(VOICE_GPT)" ]; then echo "Missing $(VOICE_GPT). Run 'make venv install-cli-cpu' first."; exit 1; fi
 
+guard-whisper-src:
+	@ if [ ! -f "$(WHISPER_DIR)/models/download-ggml-model.sh" ]; then echo "Missing whisper.cpp checkout at $(WHISPER_DIR). Run 'make install-whisper' first."; exit 1; fi
+
+guard-whisper-bin:
+	@ if [ ! -x "$(WHISPER_BIN)" ]; then echo "Missing $(WHISPER_BIN). Run 'make install-whisper' or set WHISPER_BIN=/path/to/whisper.cpp/build/bin/whisper-cli"; exit 1; fi
+
+guard-model-file:
+ifeq ($(ENGINE),faster-whisper)
+	@ :
+else
+	@ if [ ! -f "$(MODEL)" ]; then echo "Missing model file $(MODEL). Run 'make download-model MODEL_NAME=base.en' or set MODEL=/path/to/model.bin"; exit 1; fi
+endif
+
 init: guard-voice-gpt
 	$(VOICE_GPT) init
 
-transcribe: guard-voice-gpt guard-AUDIO guard-MODEL
-	$(VOICE_GPT) transcribe $(AUDIO) $(MODEL) $(TRANSCRIBE_FLAGS)
+transcribe: guard-voice-gpt guard-whisper-bin guard-model-file guard-AUDIO guard-MODEL
+	@ if [ -d "$(AUDIO)" ]; then \
+		VOICE_GPT_WHISPER_BIN=$(WHISPER_BIN) $(VOICE_GPT) ingest-dir "$(AUDIO)" $(MODEL) $(INGEST_FLAGS); \
+	else \
+		VOICE_GPT_WHISPER_BIN=$(WHISPER_BIN) $(VOICE_GPT) transcribe "$(AUDIO)" $(MODEL) $(TRANSCRIBE_FLAGS); \
+	fi
 
-ingest-dir: guard-voice-gpt guard-INPUT_DIR guard-MODEL
-	$(VOICE_GPT) ingest-dir $(INPUT_DIR) $(MODEL) $(INGEST_FLAGS)
+reingest: guard-voice-gpt guard-whisper-bin guard-model-file guard-AUDIO guard-MODEL
+	@ if [ -d "$(AUDIO)" ]; then \
+		shopt -s nullglob; \
+		IFS=, read -ra exts <<< "$(EXTENSIONS)"; \
+		files=(); \
+		for ext in "$${exts[@]}"; do \
+			ext="$${ext#.}"; \
+			files+=( "$(AUDIO)"/*."$$ext" ); \
+		done; \
+		if [ "$${#files[@]}" -eq 0 ]; then \
+			echo "No audio files found."; \
+			exit 1; \
+		fi; \
+		for f in "$${files[@]}"; do \
+			[ -f "$$f" ] || continue; \
+			VOICE_GPT_WHISPER_BIN=$(WHISPER_BIN) $(VOICE_GPT) transcribe "$$f" $(MODEL) $(TRANSCRIBE_FLAGS); \
+		done; \
+	else \
+		VOICE_GPT_WHISPER_BIN=$(WHISPER_BIN) $(VOICE_GPT) transcribe "$(AUDIO)" $(MODEL) $(TRANSCRIBE_FLAGS); \
+	fi
+
+ingest-dir: guard-voice-gpt guard-whisper-bin guard-model-file guard-INPUT_DIR guard-MODEL
+	VOICE_GPT_WHISPER_BIN=$(WHISPER_BIN) $(VOICE_GPT) ingest-dir $(INPUT_DIR) $(MODEL) $(INGEST_FLAGS)
 
 query: guard-voice-gpt guard-QUERY
 	$(VOICE_GPT) query "$(QUERY)" -k $(K) $(QUERY_FLAGS)

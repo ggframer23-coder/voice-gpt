@@ -35,15 +35,26 @@ uv pip install -e .[cli] --index-url https://pypi.org/simple --extra-index-url h
 
 - Python 3.10+
 - `whisper.cpp` binary (offline transcription)
-- A GGUF model (e.g., `tiny.en` or `base.en`)
+- A ggml model file (e.g., `ggml-base.en.bin`)
 - `ffmpeg` (for audio conversion)
 
 Set env vars:
 
 ```bash
-export VOICE_GPT_WHISPER_BIN=/path/to/whisper.cpp/main
+export VOICE_GPT_WHISPER_BIN=/path/to/whisper.cpp/build/bin/whisper-cli
 export VOICE_GPT_EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
 ```
+
+## Current build environment
+
+These versions are from the current dev machine:
+
+- Ubuntu 24.04.3 LTS (WSL2, kernel 6.6.87.2-microsoft-standard-WSL2)
+- Python 3.12.3
+- uv 0.6.2
+- cmake 3.28.3
+- ffmpeg 6.1.1-3ubuntu5
+- torch 2.9.1+cpu
 
 ## Available models
 
@@ -72,14 +83,18 @@ voice-gpt transcribe /path/to/audio.wav /path/to/gguf-model
 The `Makefile` wraps common commands and sets defaults you can override per call:
 
 - `AUDIO=audio`
-- `MODEL=base.en`
+- `MODEL_NAME=base.en`
+- `MODEL=third_party/whisper.cpp/models/ggml-base.en.bin`
 - `K=5`
 - `VENV=.venv`
 - `VOICE_GPT=.venv/bin/voice-gpt`
+- `WHISPER_DIR=third_party/whisper.cpp`
+- `WHISPER_BIN=third_party/whisper.cpp/build/bin/whisper-cli`
 
 Example overrides:
 
 ```bash
+make install-whisper download-model MODEL_NAME=base.en
 make transcribe AUDIO=/path/to/audio.wav MODEL=/path/to/model.gguf
 make query QUERY="memory pipeline" K=10
 ```
