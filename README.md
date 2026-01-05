@@ -22,6 +22,15 @@ uv pip install -e .[cli,faster]
 uv pip install -e .
 ```
 
+## CPU-only install (avoid NVIDIA/CUDA)
+
+`sentence-transformers` pulls in `torch`, which may default to CUDA wheels on some systems. To force CPU-only wheels:
+
+```bash
+uv pip install --index-url https://download.pytorch.org/whl/cpu torch==2.9.1+cpu
+uv pip install -e .[cli] --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cpu --constraint constraints-cpu.txt
+```
+
 ## Requirements
 
 - Python 3.10+
@@ -36,6 +45,18 @@ export VOICE_GPT_WHISPER_BIN=/path/to/whisper.cpp/main
 export VOICE_GPT_EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
 ```
 
+## Available models
+
+`whisper.cpp` supports the Whisper family of models in GGUF format. Common model names:
+
+- `tiny`, `tiny.en`
+- `base`, `base.en`
+- `small`, `small.en`
+- `medium`, `medium.en`
+- `large-v2`, `large-v3`
+
+For `--engine faster-whisper`, you pass the model name (for example `base.en`), and it will download the model on first use.
+
 ## Run (quickstart)
 
 ```bash
@@ -44,6 +65,23 @@ voice-gpt init
 
 # 2) Transcribe an audio file and store the entry
 voice-gpt transcribe /path/to/audio.wav /path/to/gguf-model
+```
+
+## Makefile defaults
+
+The `Makefile` wraps common commands and sets defaults you can override per call:
+
+- `AUDIO=audio`
+- `MODEL=base.en`
+- `K=5`
+- `VENV=.venv`
+- `VOICE_GPT=.venv/bin/voice-gpt`
+
+Example overrides:
+
+```bash
+make transcribe AUDIO=/path/to/audio.wav MODEL=/path/to/model.gguf
+make query QUERY="memory pipeline" K=10
 ```
 
 If you already have 16kHz mono WAV and want to skip conversion:
