@@ -103,6 +103,7 @@ If you already have 16kHz mono WAV and want to skip conversion:
 
 ```bash
 voice-gpt transcribe /path/to/audio.wav /path/to/gguf-model --no-convert
+voice-gpt transcribe /path/to/audio.wav /path/to/gguf-model --vad
 ```
 
 To use faster-whisper (CPU-only):
@@ -129,6 +130,7 @@ Archive files after ingest:
 
 ```bash
 voice-gpt ingest-dir /path/to/audio /path/to/gguf-model --archive-dir /path/to/processed
+voice-gpt ingest-dir /path/to/audio /path/to/gguf-model --vad
 ```
 
 ## Search memories

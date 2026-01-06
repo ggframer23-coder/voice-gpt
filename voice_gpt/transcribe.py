@@ -12,7 +12,7 @@ class TranscriptionError(RuntimeError):
     pass
 
 
-def convert_audio_ffmpeg(input_path: Path, output_path: Path) -> None:
+def convert_audio_ffmpeg(input_path: Path, output_path: Path, vad: bool = False) -> None:
     cmd = [
         "ffmpeg",
         "-y",
@@ -22,6 +22,14 @@ def convert_audio_ffmpeg(input_path: Path, output_path: Path) -> None:
         "1",
         "-ar",
         "16000",
+    ]
+    if vad:
+        cmd += [
+            "-af",
+            "silenceremove=start_periods=1:start_silence=0.2:start_threshold=-35dB:"
+            "stop_periods=1:stop_silence=0.2:stop_threshold=-35dB",
+        ]
+    cmd += [
         "-f",
         "wav",
         str(output_path),
@@ -38,6 +46,7 @@ def transcribe_audio(
     output_dir: Optional[Path] = None,
     language: str = "en",
     convert: bool = False,
+    vad: bool = False,
 ) -> str:
     if not settings.whisper_bin:
         raise TranscriptionError("VOICE_GPT_WHISPER_BIN is not set")
@@ -70,17 +79,17 @@ def transcribe_audio(
 
     if output_dir:
         output_dir.mkdir(parents=True, exist_ok=True)
-        if convert:
+        if convert or vad:
             converted = output_dir / "converted.wav"
-            convert_audio_ffmpeg(audio_path, converted)
+            convert_audio_ffmpeg(audio_path, converted, vad=vad)
             return run_transcribe(output_dir, converted)
         return run_transcribe(output_dir, audio_path)
 
     with TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
-        if convert:
+        if convert or vad:
             converted = tmp_path / "converted.wav"
-            convert_audio_ffmpeg(audio_path, converted)
+            convert_audio_ffmpeg(audio_path, converted, vad=vad)
             return run_transcribe(tmp_path, converted)
         return run_transcribe(tmp_path, audio_path)
 
@@ -92,6 +101,7 @@ def transcribe_audio_faster_whisper(
     device: str = "cpu",
     compute_type: str = "int8",
     convert: bool = False,
+    vad: bool = False,
 ) -> str:
     try:
         from faster_whisper import WhisperModel
@@ -107,11 +117,11 @@ def transcribe_audio_faster_whisper(
         lines = [seg.text.strip() for seg in segments if seg.text]
         return "\n".join(lines).strip()
 
-    if not convert:
+    if not convert and not vad:
         return run_transcribe(audio_path)
 
     with TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
         converted = tmp_path / "converted.wav"
-        convert_audio_ffmpeg(audio_path, converted)
+        convert_audio_ffmpeg(audio_path, converted, vad=vad)
         return run_transcribe(converted)

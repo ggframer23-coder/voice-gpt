@@ -40,6 +40,10 @@ def transcribe(
     ingest: bool = typer.Option(True, help="Store transcript in journal."),
     source: Optional[str] = typer.Option("whisper.cpp", help="Source label."),
     convert: bool = typer.Option(True, help="Convert to 16kHz mono WAV with ffmpeg."),
+    vad: bool = typer.Option(
+        False,
+        help="Trim silence with ffmpeg before transcription (forces 16kHz mono WAV conversion).",
+    ),
     engine: str = typer.Option("whispercpp", help="Transcription engine: whispercpp or faster-whisper."),
 ) -> None:
     """Transcribe audio offline with whisper.cpp or faster-whisper."""
@@ -50,9 +54,16 @@ def transcribe(
                 audio_path=audio,
                 model_name_or_path=model,
                 convert=convert,
+                vad=vad,
             )
         else:
-            text = transcribe_audio(settings, audio_path=audio, model_path=Path(model), convert=convert)
+            text = transcribe_audio(
+                settings,
+                audio_path=audio,
+                model_path=Path(model),
+                convert=convert,
+                vad=vad,
+            )
     except TranscriptionError as exc:
         raise typer.Exit(str(exc))
 
@@ -73,6 +84,10 @@ def ingest_dir(
     model: str = typer.Argument(..., help="GGUF path for whisper.cpp or model name/path for faster-whisper."),
     engine: str = typer.Option("whispercpp", help="Transcription engine: whispercpp or faster-whisper."),
     convert: bool = typer.Option(True, help="Convert to 16kHz mono WAV with ffmpeg."),
+    vad: bool = typer.Option(
+        False,
+        help="Trim silence with ffmpeg before transcription (forces 16kHz mono WAV conversion).",
+    ),
     source: Optional[str] = typer.Option("whisper.cpp", help="Source label."),
     archive_dir: Optional[Path] = typer.Option(None, help="Move processed files here."),
     extensions: str = typer.Option(
@@ -105,9 +120,16 @@ def ingest_dir(
                     audio_path=audio,
                     model_name_or_path=model,
                     convert=convert,
+                    vad=vad,
                 )
             else:
-                text = transcribe_audio(settings, audio_path=audio, model_path=Path(model), convert=convert)
+                text = transcribe_audio(
+                    settings,
+                    audio_path=audio,
+                    model_path=Path(model),
+                    convert=convert,
+                    vad=vad,
+                )
         except TranscriptionError as exc:
             print(f"Failed: {audio} ({exc})")
             continue
