@@ -103,7 +103,25 @@ If you already have 16kHz mono WAV and want to skip conversion:
 
 ```bash
 voice-gpt transcribe /path/to/audio.wav /path/to/gguf-model --no-convert
+```
+
+To split speech into clips with whisper.cpp VAD (timestamps + clips saved under `audio.vad/segments.json`):
+
+```bash
 voice-gpt transcribe /path/to/audio.wav /path/to/gguf-model --vad
+```
+
+The metadata JSON includes `start_ms`, `end_ms`, `clip_path`, and per-clip `text`.
+Use `--vad-dir /path/to/output` to change where clips + metadata are stored.
+Disable timestamp prefixes in the transcript with `--no-vad-timestamps`.
+Use `--vad-model`/`--vad-bin` (or env `VOICE_GPT_VAD_MODEL`/`VOICE_GPT_VAD_BIN`) to point at the
+whisper.cpp VAD model and `vad-speech-segments` binary.
+The default looks for `third_party/whisper.cpp/models/for-tests-silero-v6.2.0-ggml.bin`.
+
+To only segment audio (no transcription):
+
+```bash
+voice-gpt vad /path/to/audio.wav
 ```
 
 To use faster-whisper (CPU-only):
@@ -130,6 +148,11 @@ Archive files after ingest:
 
 ```bash
 voice-gpt ingest-dir /path/to/audio /path/to/gguf-model --archive-dir /path/to/processed
+```
+
+Use whisper.cpp VAD when ingesting a directory:
+
+```bash
 voice-gpt ingest-dir /path/to/audio /path/to/gguf-model --vad
 ```
 
@@ -137,6 +160,12 @@ voice-gpt ingest-dir /path/to/audio /path/to/gguf-model --vad
 
 ```bash
 voice-gpt query "memory pipeline" -k 5
+```
+
+Interactive query mode:
+
+```bash
+voice-gpt query --interactive
 ```
 
 Filter by recorded time (local ISO 8601):
