@@ -2,105 +2,43 @@
 
 Offline voice transcription, journaling, and memory retrieval with FAISS.
 
-## Install (app) with uv
+## Purpose
 
-```bash
-uv venv
-. .venv/bin/activate
-uv pip install -e .[cli]
+- Transcribe audio locally with multiple engines.
+- Store transcripts in a local journal (SQLite + FAISS index).
+- Query your transcript history by text and recorded time.
+
+## Directory structure
+
+```text
+audio/
+  2026/
+    01/
+    02/
 ```
 
-If you want `faster-whisper` too:
+- `audio/` is the default input folder for batch work.
+- Transcribed files are moved into `audio/<year>/<week>/` based on file modified time (local ISO week).
+- If VAD is enabled with the default output, the `.vad` folder is moved alongside the audio file.
+
+## Workflow
+
+Quickstart:
 
 ```bash
-uv pip install -e .[cli,faster]
-```
-
-If you want `parakeet` (onnx-asr) too:
-
-```bash
-uv pip install -e .[cli,parakeet]
-```
-
-## Install (library) with uv
-
-```bash
-uv pip install -e .
-```
-
-## CPU-only install (avoid NVIDIA/CUDA)
-
-`sentence-transformers` pulls in `torch`, which may default to CUDA wheels on some systems. To force CPU-only wheels:
-
-```bash
-uv pip install --index-url https://download.pytorch.org/whl/cpu torch==2.9.1+cpu
-uv pip install -e .[cli] --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cpu --constraint constraints-cpu.txt
-```
-
-## Requirements
-
-- Python 3.10+
-- `ffmpeg` (for audio conversion)
-
-## Transcription toolchain
-
-This project supports three local engines:
-
-- `faster-whisper` (default): CPU-only CTranslate2 backend; models are downloaded by name (e.g., `base.en`).
-- `whisper.cpp`: GGUF models + local `whisper-cli` binary (set `VOICE_GPT_WHISPER_BIN`).
-- `parakeet` (onnx-asr): ONNX models by name (e.g., `nemo-parakeet-tdt-0.6b-v3`), optional local model directory.
-
-Optional VAD:
-
-- `whisper.cpp` VAD can segment audio before transcription (requires `vad-speech-segments` and a VAD model).
-
-Set env vars:
-
-```bash
-export VOICE_GPT_WHISPER_BIN=/path/to/whisper.cpp/build/bin/whisper-cli
-export VOICE_GPT_EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
-export VOICE_GPT_PARAKEET_MODEL=nemo-parakeet-tdt-0.6b-v3
-# Optional: local model directory and quantization suffix
-export VOICE_GPT_PARAKEET_DIR=/path/to/parakeet-model
-export VOICE_GPT_PARAKEET_QUANT=int8
-```
-
-## Current build environment
-
-These versions are from the current dev machine:
-
-- Ubuntu 24.04.3 LTS (WSL2, kernel 6.6.87.2-microsoft-standard-WSL2)
-- Python 3.12.3
-- uv 0.6.2
-- cmake 3.28.3
-- ffmpeg 6.1.1-3ubuntu5
-- torch 2.9.1+cpu
-
-## Available models
-
-`whisper.cpp` supports the Whisper family of models in GGUF format. Common model names:
-
-- `tiny`, `tiny.en`
-- `base`, `base.en`
-- `small`, `small.en`
-- `medium`, `medium.en`
-- `large-v2`, `large-v3`
-
-The default engine is `faster-whisper`. You pass the model name (for example `base.en`), and it will download the model on first use.
-
-## Run (quickstart)
-
-```bash
-# 1) Initialize storage
 voice-gpt init
-
-# 2) Transcribe an audio file and store the entry (default engine: faster-whisper)
 voice-gpt transcribe /path/to/audio.wav base.en
 ```
 
-## Commands and options
+Batch folder workflow (top-level only):
 
-List commands:
+```bash
+make transcribe AUDIO=audio MODEL=base.en
+```
+
+Already-ingested files are still moved into their year/week folder.
+
+## Commands
 
 - `voice-gpt init` - initialize storage and index.
 - `voice-gpt transcribe AUDIO MODEL` - transcribe one file.
@@ -108,6 +46,7 @@ List commands:
 - `voice-gpt summary` - list ingested audio with size, minutes, and word count.
 - `voice-gpt vad AUDIO` - generate VAD clips and metadata only.
 - `voice-gpt query QUERY` - search stored transcripts.
+- `voice-gpt-query QUERY` - query-only CLI (no transcription commands).
 - `voice-gpt add-text TEXT` - store raw text without audio.
 
 Common options:
@@ -123,6 +62,76 @@ Common options:
 - `--recorded-from ISO` / `--recorded-to ISO` (query) to filter by recorded time
 
 Run `voice-gpt --help` or `voice-gpt COMMAND --help` for the full list.
+
+## Install
+
+App (CLI):
+
+```bash
+uv venv
+. .venv/bin/activate
+uv pip install -e .[cli]
+```
+
+Add `faster-whisper`:
+
+```bash
+uv pip install -e .[cli,faster]
+```
+
+Add `parakeet` (onnx-asr):
+
+```bash
+uv pip install -e .[cli,parakeet]
+```
+
+Library only:
+
+```bash
+uv pip install -e .
+```
+
+CPU-only install (avoid CUDA):
+
+```bash
+uv pip install --index-url https://download.pytorch.org/whl/cpu torch==2.9.1+cpu
+uv pip install -e .[cli] --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cpu --constraint constraints-cpu.txt
+```
+
+## Requirements
+
+- Python 3.10+
+- `ffmpeg` (for audio conversion)
+
+## Engines and models
+
+Supported engines:
+
+- `faster-whisper` (default): CPU-only CTranslate2 backend; models by name (e.g., `base.en`).
+- `whisper.cpp`: GGUF models + local `whisper-cli` binary (set `VOICE_GPT_WHISPER_BIN`).
+- `parakeet` (onnx-asr): ONNX models by name (e.g., `nemo-parakeet-tdt-0.6b-v3`).
+
+Common Whisper model names:
+
+- `tiny`, `tiny.en`
+- `base`, `base.en`
+- `small`, `small.en`
+- `medium`, `medium.en`
+- `large-v2`, `large-v3`
+
+Optional VAD:
+
+- `whisper.cpp` VAD can segment audio before transcription (requires `vad-speech-segments` and a VAD model).
+
+Environment variables:
+
+```bash
+export VOICE_GPT_WHISPER_BIN=/path/to/whisper.cpp/build/bin/whisper-cli
+export VOICE_GPT_EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
+export VOICE_GPT_PARAKEET_MODEL=nemo-parakeet-tdt-0.6b-v3
+export VOICE_GPT_PARAKEET_DIR=/path/to/parakeet-model
+export VOICE_GPT_PARAKEET_QUANT=int8
+```
 
 ## Makefile defaults
 
@@ -145,118 +154,46 @@ make transcribe AUDIO=/path/to/audio.wav MODEL=/path/to/model.gguf
 make query QUERY="memory pipeline" K=10
 ```
 
-## Audio directory workflow
+## Storage location
 
-When `AUDIO=audio` is used (for example `make transcribe AUDIO=audio ...`), the CLI only scans the
-top-level files in `audio/` and then moves each file into a year/week folder under `audio/` after
-transcription. The year/week is derived from the file modified time (local ISO week).
+The journal database lives at `~/.voice-gpt/journal.sqlite` by default. You can override:
 
-Example target layout:
+- `VOICE_GPT_HOME` to change the base directory (defaults to `~/.voice-gpt`)
+- `VOICE_GPT_DB` to point directly at a specific SQLite file
 
-```text
-audio/
-  2026/
-    01/
-    02/
-```
+The FAISS index lives alongside the database as `~/.voice-gpt/faiss.index` unless you set
+`VOICE_GPT_INDEX`.
 
-Notes:
+## Examples
 
-- Already-ingested files are still moved into their year/week folder.
-- If VAD is enabled with the default output, the `.vad` folder is moved alongside the audio file.
-
-If you already have 16kHz mono WAV and want to skip conversion:
+Skip conversion if you already have 16kHz mono WAV:
 
 ```bash
 voice-gpt transcribe /path/to/audio.wav /path/to/gguf-model --no-convert
 ```
 
-To split speech into clips with whisper.cpp VAD (timestamps + clips saved under `audio.vad/segments.json`):
+Split speech into VAD clips and include timestamps:
 
 ```bash
 voice-gpt transcribe /path/to/audio.wav /path/to/gguf-model --vad
 ```
 
-The metadata JSON includes `start_ms`, `end_ms`, `clip_path`, and per-clip `text`.
-Use `--vad-dir /path/to/output` to change where clips + metadata are stored.
-Disable timestamp prefixes in the transcript with `--no-vad-timestamps`.
-Use `--vad-model`/`--vad-bin` (or env `VOICE_GPT_VAD_MODEL`/`VOICE_GPT_VAD_BIN`) to point at the
-whisper.cpp VAD model and `vad-speech-segments` binary.
-The default looks for `third_party/whisper.cpp/models/for-tests-silero-v6.2.0-ggml.bin`.
-
-To only segment audio (no transcription):
+Only segment audio (no transcription):
 
 ```bash
 voice-gpt vad /path/to/audio.wav
 ```
 
-To use faster-whisper (CPU-only):
-
-```bash
-voice-gpt transcribe /path/to/audio.wav base.en --engine faster-whisper
-```
-
-To use Parakeet (CPU-only, onnx-asr):
-
-```bash
-voice-gpt transcribe /path/to/audio.wav nemo-parakeet-tdt-0.6b-v3 --engine parakeet
-```
-
-To use a local Parakeet model directory (for example, `parakeet-tdt-0.6b-v3-int8`):
-
-```bash
-voice-gpt transcribe /path/to/audio.wav nemo-parakeet-tdt-0.6b-v3 --engine parakeet \
-  --parakeet-dir /path/to/parakeet-tdt-0.6b-v3-int8 --parakeet-quant int8
-```
-
-To save text to a file without storing:
-
-```bash
-voice-gpt transcribe /path/to/audio.wav /path/to/gguf-model --save /tmp/out.txt --no-ingest
-```
-
-## Ingest a directory
-
-Process every audio file in a folder and store entries:
-
-```bash
-voice-gpt ingest-dir /path/to/audio /path/to/gguf-model
-```
-
-Archive files after ingest:
-
-```bash
-voice-gpt ingest-dir /path/to/audio /path/to/gguf-model --archive-dir /path/to/processed
-```
-
-Use whisper.cpp VAD when ingesting a directory:
-
-```bash
-voice-gpt ingest-dir /path/to/audio /path/to/gguf-model --vad
-```
-
-## Search memories
-
-```bash
-voice-gpt query "memory pipeline" -k 5
-```
-
-Interactive query mode:
+Query interactively:
 
 ```bash
 voice-gpt query --interactive
 ```
 
-Filter by recorded time (local ISO 8601):
+Filter by recorded time:
 
 ```bash
 voice-gpt query "memory pipeline" --recorded-from "2026-01-01T00:00:00-08:00" --recorded-to "2026-01-31T23:59:59-08:00"
-```
-
-## Add text directly
-
-```bash
-voice-gpt add-text "Today I worked on the memory pipeline."
 ```
 
 ## Using as a library
