@@ -68,34 +68,25 @@ Run `voice-gpt --help` or `voice-gpt COMMAND --help` for the full list.
 App (CLI):
 
 ```bash
-uv venv
-. .venv/bin/activate
-uv pip install -e .[cli]
+make venv install-cli
 ```
 
 Add `faster-whisper`:
 
 ```bash
-uv pip install -e .[cli,faster]
-```
-
-Add `parakeet` (onnx-asr):
-
-```bash
-uv pip install -e .[cli,parakeet]
+make venv install-faster
 ```
 
 Library only:
 
 ```bash
-uv pip install -e .
+make venv install
 ```
 
 CPU-only install (avoid CUDA):
 
 ```bash
-uv pip install --index-url https://download.pytorch.org/whl/cpu torch==2.9.1+cpu
-uv pip install -e .[cli] --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cpu --constraint constraints-cpu.txt
+make venv install-cli-cpu
 ```
 
 ## Requirements
