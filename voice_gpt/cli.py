@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import builtins
 import json
+import shutil
+import sqlite3
+import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -9,7 +14,13 @@ from rich import print
 
 from .journal import add_entry, has_audio, init_store, search
 from .settings import load_settings
-from .transcribe import TranscriptionError, transcribe_audio, transcribe_audio_faster_whisper
+from .transcribe import (
+    TranscriptionError,
+    load_parakeet_model,
+    transcribe_audio,
+    transcribe_audio_faster_whisper,
+    transcribe_audio_parakeet,
+)
 from .vad import create_vad_clips
 
 app = typer.Typer(add_completion=False)
@@ -28,8 +39,63 @@ def _write_vad_metadata(path: Path, metadata: dict) -> None:
     path.write_text(json.dumps(metadata, indent=2, ensure_ascii=True), encoding="utf-8")
 
 
+def _archive_week_dir(base_dir: Path, audio_path: Path) -> Path:
+    recorded_at = datetime.fromtimestamp(audio_path.stat().st_mtime).astimezone()
+    week = recorded_at.isocalendar().week
+    return base_dir / str(recorded_at.year) / f"{week:02d}"
+
+
+def _audio_duration_seconds(audio_path: Path) -> Optional[float]:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        result = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(audio_path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return None
+
+
 def _resolve_vad_paths(settings, vad_bin: Optional[Path], vad_model: Optional[Path]) -> tuple[Optional[Path], Optional[Path]]:
     return vad_bin or settings.vad_bin, vad_model or settings.vad_model
+
+
+def _resolve_parakeet_settings(
+    settings,
+    parakeet_model: Optional[str],
+    parakeet_dir: Optional[Path],
+    parakeet_quant: Optional[str],
+    model_fallback: Optional[str] = None,
+) -> tuple[str, Optional[Path], Optional[str]]:
+    model = parakeet_model or model_fallback or settings.parakeet_model
+    model_dir = parakeet_dir or settings.parakeet_dir
+    quant = parakeet_quant if parakeet_quant is not None else settings.parakeet_quant
+    return model, model_dir, quant
+
+
+def _build_audio_index(audio_dir: Path) -> dict[str, Path]:
+    index: dict[str, Path] = {}
+    for path in audio_dir.rglob("*"):
+        if path.is_file():
+            index.setdefault(path.name, path)
+    return index
 
 
 def _format_timestamp_ms(ms: int) -> str:
@@ -76,6 +142,27 @@ def _transcribe_clips_faster_whisper(
         segments, _info = model.transcribe(str(clip_path), language="en")
         lines = [seg.text.strip() for seg in segments if seg.text]
         text = "\n".join(lines).strip()
+        clip["text"] = text
+        if text:
+            if include_timestamps:
+                texts.append(_format_clip_line(clip, text))
+            else:
+                texts.append(text)
+    return "\n".join(texts).strip()
+
+
+def _transcribe_clips_parakeet(
+    clips: list[dict],
+    model_name: str,
+    model_dir: Optional[Path],
+    quantization: Optional[str],
+    include_timestamps: bool,
+) -> str:
+    model = load_parakeet_model(model_name, model_dir=model_dir, quantization=quantization)
+    texts = []
+    for clip in clips:
+        clip_path = Path(clip["clip_path"])
+        text = model.recognize(str(clip_path)).strip()
         clip["text"] = text
         if text:
             if include_timestamps:
@@ -146,7 +233,10 @@ def vad(
 @app.command()
 def transcribe(
     audio: Path = typer.Argument(..., help="Path to audio file."),
-    model: str = typer.Argument(..., help="GGUF path for whisper.cpp or model name/path for faster-whisper."),
+    model: str = typer.Argument(
+        ...,
+        help="GGUF path for whisper.cpp, model name/path for faster-whisper, or Parakeet model name.",
+    ),
     save: Optional[Path] = typer.Option(None, help="Save transcript to file."),
     ingest: bool = typer.Option(True, help="Store transcript in journal."),
     source: Optional[str] = typer.Option("whisper.cpp", help="Source label."),
@@ -168,11 +258,30 @@ def transcribe(
         True,
         help="Include clip timestamps in transcript when VAD is enabled.",
     ),
-    engine: str = typer.Option("whispercpp", help="Transcription engine: whispercpp or faster-whisper."),
+    engine: str = typer.Option("faster-whisper", help="Transcription engine: faster-whisper, whispercpp, or parakeet."),
+    parakeet_model: Optional[str] = typer.Option(
+        None,
+        help="Parakeet model name for onnx-asr (e.g., nemo-parakeet-tdt-0.6b-v3).",
+    ),
+    parakeet_dir: Optional[Path] = typer.Option(
+        None,
+        help="Directory containing Parakeet model files (optional).",
+    ),
+    parakeet_quant: Optional[str] = typer.Option(
+        None,
+        help="Parakeet quantization suffix (e.g., int8).",
+    ),
 ) -> None:
     """Transcribe audio offline with whisper.cpp or faster-whisper."""
     settings = load_settings()
     metadata: Optional[dict] = None
+    resolved_parakeet = _resolve_parakeet_settings(
+        settings,
+        parakeet_model,
+        parakeet_dir,
+        parakeet_quant,
+        model_fallback=model,
+    )
     try:
         if vad:
             output_dir = vad_dir or _default_vad_dir(audio)
@@ -194,6 +303,15 @@ def transcribe(
                 raise typer.Exit("No speech segments detected.")
             if engine == "faster-whisper":
                 text = _transcribe_clips_faster_whisper(clips, model, vad_timestamps)
+            elif engine == "parakeet":
+                parakeet_model_name, parakeet_model_dir, parakeet_quantization = resolved_parakeet
+                text = _transcribe_clips_parakeet(
+                    clips,
+                    parakeet_model_name,
+                    parakeet_model_dir,
+                    parakeet_quantization,
+                    vad_timestamps,
+                )
             else:
                 text = _transcribe_clips_whispercpp(settings, clips, Path(model), vad_timestamps)
             _write_vad_metadata(_vad_metadata_path(output_dir), metadata)
@@ -202,6 +320,15 @@ def transcribe(
                 text = transcribe_audio_faster_whisper(
                     audio_path=audio,
                     model_name_or_path=model,
+                    convert=convert,
+                )
+            elif engine == "parakeet":
+                parakeet_model_name, parakeet_model_dir, parakeet_quantization = resolved_parakeet
+                text = transcribe_audio_parakeet(
+                    audio_path=audio,
+                    model_name=parakeet_model_name,
+                    model_dir=parakeet_model_dir,
+                    quantization=parakeet_quantization,
                     convert=convert,
                 )
             else:
@@ -226,10 +353,84 @@ def transcribe(
 
 
 @app.command()
+def summary(
+    audio_dir: Optional[Path] = typer.Option(
+        None,
+        help="Base directory to resolve moved audio files (searched recursively).",
+    ),
+    dedupe: bool = typer.Option(
+        True,
+        help="Collapse duplicate audio_path entries (keeps latest by recorded_at).",
+    ),
+) -> None:
+    """List already transcribed audio files with size, minutes, and word count."""
+    settings = load_settings()
+    if not settings.db_path.exists():
+        builtins.print("No journal database found.")
+        raise typer.Exit()
+
+    resolved_audio_dir = audio_dir
+    if resolved_audio_dir is None:
+        default_audio_dir = Path("audio")
+        if default_audio_dir.exists():
+            resolved_audio_dir = default_audio_dir
+
+    audio_index: dict[str, Path] = {}
+    if resolved_audio_dir and resolved_audio_dir.exists():
+        audio_index = _build_audio_index(resolved_audio_dir)
+
+    with sqlite3.connect(settings.db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT recorded_at, text, audio_path FROM entries "
+            "WHERE audio_path IS NOT NULL AND audio_path != '' "
+            "ORDER BY recorded_at"
+        ).fetchall()
+
+    if not rows:
+        builtins.print("No audio entries found.")
+        raise typer.Exit()
+
+    if dedupe:
+        deduped: dict[str, sqlite3.Row] = {}
+        for row in rows:
+            deduped[row["audio_path"]] = row
+        rows = list(deduped.values())
+
+    items = []
+    for row in rows:
+        audio_path = row["audio_path"]
+        text = row["text"] or ""
+        word_count = len(text.split())
+        resolved_path = Path(audio_path)
+        if not resolved_path.exists():
+            resolved_path = audio_index.get(resolved_path.name, resolved_path)
+
+        size_bytes = resolved_path.stat().st_size if resolved_path.exists() else None
+        size_mb = f"{(size_bytes / (1024 * 1024)):.2f}" if size_bytes is not None else "n/a"
+
+        duration_seconds = _audio_duration_seconds(resolved_path) if resolved_path.exists() else None
+        minutes = f"{(duration_seconds / 60):.1f}" if duration_seconds is not None else "n/a"
+
+        display_path = str(resolved_path)
+        if not resolved_path.exists():
+            display_path = f"{display_path} (missing)"
+        items.append((display_path, size_mb, minutes, word_count))
+
+    path_width = max([len("audio_path")] + [len(item[0]) for item in items]) + 5
+    builtins.print(f"{'audio_path':<{path_width}}size_mb minutes words")
+    for display_path, size_mb, minutes, word_count in items:
+        builtins.print(f"{display_path:<{path_width}}{size_mb:>7} {minutes:>7} {word_count:>5}")
+
+
+@app.command()
 def ingest_dir(
     directory: Path = typer.Argument(..., help="Directory with audio files."),
-    model: str = typer.Argument(..., help="GGUF path for whisper.cpp or model name/path for faster-whisper."),
-    engine: str = typer.Option("whispercpp", help="Transcription engine: whispercpp or faster-whisper."),
+    model: str = typer.Argument(
+        ...,
+        help="GGUF path for whisper.cpp, model name/path for faster-whisper, or Parakeet model name.",
+    ),
+    engine: str = typer.Option("faster-whisper", help="Transcription engine: faster-whisper, whispercpp, or parakeet."),
     convert: bool = typer.Option(True, help="Convert to 16kHz mono WAV with ffmpeg."),
     vad: bool = typer.Option(
         False,
@@ -249,6 +450,18 @@ def ingest_dir(
         help="Include clip timestamps in transcript when VAD is enabled.",
     ),
     source: Optional[str] = typer.Option("whisper.cpp", help="Source label."),
+    parakeet_model: Optional[str] = typer.Option(
+        None,
+        help="Parakeet model name for onnx-asr (e.g., nemo-parakeet-tdt-0.6b-v3).",
+    ),
+    parakeet_dir: Optional[Path] = typer.Option(
+        None,
+        help="Directory containing Parakeet model files (optional).",
+    ),
+    parakeet_quant: Optional[str] = typer.Option(
+        None,
+        help="Parakeet quantization suffix (e.g., int8).",
+    ),
     archive_dir: Optional[Path] = typer.Option(None, help="Move processed files here."),
     extensions: str = typer.Option(
         "wav,mp3,m4a,flac,ogg,opus,webm",
@@ -257,6 +470,13 @@ def ingest_dir(
 ) -> None:
     """Ingest and transcribe all audio files in a directory."""
     settings = load_settings()
+    resolved_parakeet = _resolve_parakeet_settings(
+        settings,
+        parakeet_model,
+        parakeet_dir,
+        parakeet_quant,
+        model_fallback=model,
+    )
     if not directory.exists():
         raise typer.Exit(f"Directory not found: {directory}")
 
@@ -271,8 +491,19 @@ def ingest_dir(
         archive_dir.mkdir(parents=True, exist_ok=True)
 
     for audio in files:
+        archive_target = archive_dir
+        if archive_target is None and directory.name == "audio":
+            archive_target = _archive_week_dir(directory, audio)
+
         if has_audio(settings, str(audio)):
             print(f"Skipping already ingested: {audio}")
+            if archive_target:
+                archive_target.mkdir(parents=True, exist_ok=True)
+                target = archive_target / audio.name
+                audio.replace(target)
+                default_vad_dir = _default_vad_dir(audio)
+                if default_vad_dir.exists():
+                    default_vad_dir.replace(archive_target / default_vad_dir.name)
             continue
         try:
             metadata: Optional[dict] = None
@@ -296,6 +527,15 @@ def ingest_dir(
                     raise TranscriptionError("No speech segments detected.")
                 if engine == "faster-whisper":
                     text = _transcribe_clips_faster_whisper(clips, model, vad_timestamps)
+                elif engine == "parakeet":
+                    parakeet_model_name, parakeet_model_dir, parakeet_quantization = resolved_parakeet
+                    text = _transcribe_clips_parakeet(
+                        clips,
+                        parakeet_model_name,
+                        parakeet_model_dir,
+                        parakeet_quantization,
+                        vad_timestamps,
+                    )
                 else:
                     text = _transcribe_clips_whispercpp(settings, clips, Path(model), vad_timestamps)
                 _write_vad_metadata(_vad_metadata_path(output_dir), metadata)
@@ -304,6 +544,15 @@ def ingest_dir(
                     text = transcribe_audio_faster_whisper(
                         audio_path=audio,
                         model_name_or_path=model,
+                        convert=convert,
+                    )
+                elif engine == "parakeet":
+                    parakeet_model_name, parakeet_model_dir, parakeet_quantization = resolved_parakeet
+                    text = transcribe_audio_parakeet(
+                        audio_path=audio,
+                        model_name=parakeet_model_name,
+                        model_dir=parakeet_model_dir,
+                        quantization=parakeet_quantization,
                         convert=convert,
                     )
                 else:
@@ -320,9 +569,14 @@ def ingest_dir(
         entry_id = add_entry(settings, text=text, source=source, audio_path=str(audio), metadata=metadata)
         print(f"Added entry {entry_id} from {audio}")
 
-        if archive_dir:
-            target = archive_dir / audio.name
+        if archive_target:
+            archive_target.mkdir(parents=True, exist_ok=True)
+            target = archive_target / audio.name
             audio.replace(target)
+            if vad and vad_dir is None:
+                default_vad_dir = _default_vad_dir(audio)
+                if default_vad_dir.exists():
+                    default_vad_dir.replace(archive_target / default_vad_dir.name)
 
 
 def _print_query_results(results: list[dict]) -> None:
