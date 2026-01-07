@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help clean venv install install-cli install-faster install-cpu install-cli-cpu install-faster-cpu install-whisper download-model benchmark init transcribe reingest ingest-dir query add-text guard-voice-gpt guard-whisper-bin guard-whisper-src guard-model-file
+.PHONY: help clean venv install install-cli install-faster install-cpu install-cli-cpu install-faster-cpu install-whisper download-model benchmark benchmark-parakeet init transcribe reingest ingest-dir query add-text dedupe guard-voice-gpt guard-whisper-bin guard-whisper-src guard-model-file
 
 SHELL := /usr/bin/env bash
 
@@ -19,6 +19,11 @@ MODEL_NAME ?= base.en
 MODEL ?= $(if $(filter faster-whisper,$(ENGINE)),$(MODEL_NAME),$(WHISPER_MODELS_DIR)/ggml-$(MODEL_NAME).bin)
 EXTENSIONS ?= wav,mp3,m4a,flac,ogg,opus,webm
 BENCH_OUTPUT_DIR ?= /tmp/voice-gpt-bench
+PARAKEET_MODEL ?= nemo-parakeet-tdt-0.6b-v3
+PARAKEET_DIR ?=
+PARAKEET_QUANT ?= int8
+RUN_FASTER ?= 1
+RUN_PARAKEET ?= 1
 
 AUDIO ?= audio
 MODEL ?= base.en
@@ -30,7 +35,7 @@ ARCHIVE_DIR ?=
 RECORDED_FROM ?=
 RECORDED_TO ?=
 SAVE ?=
-ENGINE ?=
+ENGINE ?= faster-whisper
 NO_CONVERT ?= 0
 NO_INGEST ?= 0
 
@@ -73,7 +78,8 @@ help:
 	@ echo "  install-faster      Install faster-whisper extra (editable)"
 	@ echo "  install-whisper     Build whisper.cpp (sets WHISPER_BIN path)"
 	@ echo "  download-model      Download a whisper.cpp ggml model"
-	@ echo "  benchmark           Compare whisper.cpp vs faster-whisper timing"
+	@ echo "  benchmark           Compare whisper.cpp vs faster-whisper/parakeet timing"
+	@ echo "  benchmark-parakeet  Compare whisper.cpp vs parakeet timing"
 	@ echo "  install-cpu         Install CPU-only torch, then library"
 	@ echo "  install-cli-cpu     Install CPU-only torch, then CLI extra"
 	@ echo "  install-faster-cpu  Install CPU-only torch, then CLI+faster"
@@ -83,6 +89,7 @@ help:
 	@ echo "  ingest-dir          Ingest INPUT_DIR with MODEL"
 	@ echo "  query               Search memories"
 	@ echo "  add-text            Add text entry"
+	@ echo "  dedupe              Remove duplicate audio entries (keeps latest by recorded_at)"
 	@ echo ""
 	@ echo "Examples:"
 	@ echo "  make venv install-cli"
@@ -94,6 +101,7 @@ help:
 	@ echo "  make benchmark AUDIO=/path/audio.wav MODEL_NAME=base.en"
 	@ echo "  make query QUERY='memory pipeline' K=5"
 	@ echo "  make add-text TEXT='Today I worked on the memory pipeline.'"
+	@ echo "  make dedupe"
 
 venv:
 	$(UV_CMD) venv $(VENV)
@@ -117,8 +125,13 @@ download-model: guard-whisper-src
 	mkdir -p $(WHISPER_MODELS_DIR)
 	sh $(WHISPER_DIR)/models/download-ggml-model.sh $(MODEL_NAME) $(WHISPER_MODELS_DIR)
 
+benchmark: ENGINE=whispercpp
 benchmark: guard-voice-gpt guard-whisper-bin guard-AUDIO
-	AUDIO=$(AUDIO) VOICE_GPT=$(VOICE_GPT) WHISPER_BIN=$(WHISPER_BIN) WHISPER_DIR=$(WHISPER_DIR) MODEL_NAME=$(MODEL_NAME) OUTPUT_DIR=$(BENCH_OUTPUT_DIR) NO_CONVERT=$(NO_CONVERT) bash scripts/benchmark_transcribe.sh
+	AUDIO=$(AUDIO) VOICE_GPT=$(VOICE_GPT) WHISPER_BIN=$(WHISPER_BIN) WHISPER_DIR=$(WHISPER_DIR) MODEL_NAME=$(MODEL_NAME) OUTPUT_DIR=$(BENCH_OUTPUT_DIR) NO_CONVERT=$(NO_CONVERT) PARAKEET_MODEL=$(PARAKEET_MODEL) PARAKEET_DIR=$(PARAKEET_DIR) PARAKEET_QUANT=$(PARAKEET_QUANT) RUN_FASTER=$(RUN_FASTER) RUN_PARAKEET=$(RUN_PARAKEET) bash scripts/benchmark_transcribe.sh
+
+benchmark-parakeet: ENGINE=whispercpp
+benchmark-parakeet: guard-voice-gpt guard-whisper-bin guard-AUDIO
+	AUDIO=$(AUDIO) VOICE_GPT=$(VOICE_GPT) WHISPER_BIN=$(WHISPER_BIN) WHISPER_DIR=$(WHISPER_DIR) MODEL_NAME=$(MODEL_NAME) OUTPUT_DIR=$(BENCH_OUTPUT_DIR) NO_CONVERT=$(NO_CONVERT) PARAKEET_MODEL=$(PARAKEET_MODEL) PARAKEET_DIR=$(PARAKEET_DIR) PARAKEET_QUANT=$(PARAKEET_QUANT) RUN_FASTER=0 RUN_PARAKEET=1 bash scripts/benchmark_transcribe.sh
 
 install-cpu:
 	$(UV_CMD) pip install --index-url $(TORCH_CPU_INDEX) $(TORCH_CPU_SPEC)
@@ -139,10 +152,14 @@ guard-whisper-src:
 	@ if [ ! -f "$(WHISPER_DIR)/models/download-ggml-model.sh" ]; then echo "Missing whisper.cpp checkout at $(WHISPER_DIR). Run 'make install-whisper' first."; exit 1; fi
 
 guard-whisper-bin:
+ifeq ($(ENGINE),whispercpp)
 	@ if [ ! -x "$(WHISPER_BIN)" ]; then echo "Missing $(WHISPER_BIN). Run 'make install-whisper' or set WHISPER_BIN=/path/to/whisper.cpp/build/bin/whisper-cli"; exit 1; fi
+endif
 
 guard-model-file:
 ifeq ($(ENGINE),faster-whisper)
+	@ :
+else ifeq ($(ENGINE),parakeet)
 	@ :
 else
 	@ if [ ! -f "$(MODEL)" ]; then echo "Missing model file $(MODEL). Run 'make download-model MODEL_NAME=base.en' or set MODEL=/path/to/model.bin"; exit 1; fi
@@ -187,3 +204,6 @@ query: guard-voice-gpt guard-QUERY
 
 add-text: guard-voice-gpt guard-TEXT
 	$(VOICE_GPT) add-text "$(TEXT)"
+
+dedupe:
+	python3 scripts/dedupe_journal.py
