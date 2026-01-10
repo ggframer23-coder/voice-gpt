@@ -292,17 +292,40 @@ def transcribe_audio_whisperx(
         if diarize:
             diarize_name = diarize_model or "pyannote/speaker-diarization"
             try:
-                diarizer = whisperx.load_diarize_model(diarize_name, device=device)
-                diarization = diarizer({"uri": input_path.stem, "audio": str(input_path)})
-                speaker_segments = []
-                for segment, _, label in diarization.itertracks(yield_label=True):
-                    speaker_segments.append(
-                        {
-                            "start": float(segment.start),
-                            "end": float(segment.end),
-                            "speaker": label,
-                        }
+                if hasattr(whisperx, "load_diarize_model"):
+                    diarizer = whisperx.load_diarize_model(diarize_name, device=device)
+                    diarization = diarizer({"uri": input_path.stem, "audio": str(input_path)})
+                    speaker_segments = []
+                    for segment, _, label in diarization.itertracks(yield_label=True):
+                        speaker_segments.append(
+                            {
+                                "start": float(segment.start),
+                                "end": float(segment.end),
+                                "speaker": label,
+                            }
+                        )
+                else:
+                    from whisperx.diarize import DiarizationPipeline
+
+                    hf_token = (
+                        os.environ.get("HUGGINGFACE_TOKEN")
+                        or os.environ.get("HF_TOKEN")
+                        or os.environ.get("HUGGINGFACE_HUB_TOKEN")
                     )
+                    diarizer = DiarizationPipeline(
+                        model_name=diarize_name,
+                        device=device,
+                        use_auth_token=hf_token,
+                    )
+                    diarize_df = diarizer(str(input_path))
+                    speaker_segments = [
+                        {
+                            "start": float(row["start"]),
+                            "end": float(row["end"]),
+                            "speaker": str(row["speaker"]),
+                        }
+                        for _, row in diarize_df.iterrows()
+                    ]
                 metadata["whisperx"]["diarization"] = speaker_segments
             except Exception as exc:
                 raise TranscriptionError(f"WhisperX diarization failed: {exc}") from exc
