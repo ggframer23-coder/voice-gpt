@@ -820,6 +820,28 @@ wheels = [
 ]
 
 [[package]]
+name = "onnx-asr"
+version = "0.10.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7c/91/b8ada37004bfea891582046fc6da5505414bd6580720a3daa41bda42fdfa/onnx_asr-0.10.1.tar.gz", hash = "sha256:a2166d827a7ec9f349270f6ab44ef6555d8fee6900c3d3e586c29cf4455c1124", size = 42658 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/46/26/e3b684ac14056c3547f37477d781fdabce92a41322634989fd3a928377ee/onnx_asr-0.10.1-py3-none-any.whl", hash = "sha256:f5501aca889bddae2941ba60e018927e5b5716776483fb4b2fed484025b62b75", size = 121388 },
+]
+
+[package.optional-dependencies]
+cpu = [
+    { name = "onnxruntime" },
+]
+hub = [
+    { name = "huggingface-hub" },
+]
+
+[[package]]
 name = "onnxruntime"
 version = "1.23.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1398,6 +1420,41 @@ wheels = [
 ]
 
 [[package]]
+name = "stt"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "faiss-cpu" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "sentence-transformers" },
+]
+
+[package.optional-dependencies]
+cli = [
+    { name = "rich" },
+    { name = "typer" },
+]
+faster = [
+    { name = "faster-whisper" },
+]
+parakeet = [
+    { name = "onnx-asr", extra = ["cpu", "hub"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "faiss-cpu", specifier = ">=1.7.4" },
+    { name = "faster-whisper", marker = "extra == 'faster'", specifier = ">=1.0.3" },
+    { name = "numpy", specifier = ">=1.24" },
+    { name = "onnx-asr", extras = ["cpu", "hub"], marker = "extra == 'parakeet'" },
+    { name = "rich", marker = "extra == 'cli'", specifier = ">=13.7" },
+    { name = "sentence-transformers", specifier = ">=2.6.1" },
+    { name = "typer", marker = "extra == 'cli'", specifier = ">=0.12" },
+]
+provides-extras = ["cli", "faster", "parakeet"]
+
+[[package]]
 name = "sympy"
 version = "1.14.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1584,34 +1641,3 @@ sdist = { url = "https://files.pythonhosted.org/packages/1e/24/a2a2ed9addd907787
 wheels = [
     { url = "https://files.pythonhosted.org/packages/6d/b9/4095b668ea3678bf6a0af005527f39de12fb026516fb3df17495a733b7f8/urllib3-2.6.2-py3-none-any.whl", hash = "sha256:ec21cddfe7724fc7cb4ba4bea7aa8e2ef36f607a4bab81aa6ce42a13dc3f03dd", size = 131182 },
 ]
-
-[[package]]
-name = "voice-gpt"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "faiss-cpu" },
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "sentence-transformers" },
-]
-
-[package.optional-dependencies]
-cli = [
-    { name = "rich" },
-    { name = "typer" },
-]
-faster = [
-    { name = "faster-whisper" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "faiss-cpu", specifier = ">=1.7.4" },
-    { name = "faster-whisper", marker = "extra == 'faster'", specifier = ">=1.0.3" },
-    { name = "numpy", specifier = ">=1.24" },
-    { name = "rich", marker = "extra == 'cli'", specifier = ">=13.7" },
-    { name = "sentence-transformers", specifier = ">=2.6.1" },
-    { name = "typer", marker = "extra == 'cli'", specifier = ">=0.12" },
-]
-provides-extras = ["cli", "faster"]

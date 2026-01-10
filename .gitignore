@@ -9,3 +9,5 @@ dist/
 .pytest_cache/
 chat_*.md
 audio/
+*.tmp
+tmp/

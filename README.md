@@ -1,4 +1,4 @@
-# voice-gpt
+# stt
 
 Offline voice transcription, journaling, and memory retrieval with FAISS.
 
@@ -26,8 +26,8 @@ audio/
 Quickstart:
 
 ```bash
-voice-gpt init
-voice-gpt transcribe /path/to/audio.wav base.en
+stt init
+stt transcribe /path/to/audio.wav base.en
 ```
 
 Batch folder workflow (top-level only):
@@ -40,14 +40,32 @@ Already-ingested files are still moved into their year/week folder.
 
 ## Commands
 
-- `voice-gpt init` - initialize storage and index.
-- `voice-gpt transcribe AUDIO MODEL` - transcribe one file.
-- `voice-gpt ingest-dir DIR MODEL` - transcribe all supported files in a directory.
-- `voice-gpt summary` - list ingested audio with size, minutes, and word count.
-- `voice-gpt vad AUDIO` - generate VAD clips and metadata only.
-- `voice-gpt query QUERY` - search stored transcripts.
-- `voice-gpt-query QUERY` - query-only CLI (no transcription commands).
-- `voice-gpt add-text TEXT` - store raw text without audio.
+- `stt init` - initialize storage and index.
+- `stt transcribe AUDIO MODEL` - transcribe one file.
+- `stt reingest AUDIO MODEL` - force transcribe even if already ingested.
+- `stt ingest-dir DIR MODEL` - transcribe all supported files in a directory.
+- `stt summary` - list ingested audio with size, minutes, and word count.
+- `stt export DIR` - export one transcript file per recording into DIR.
+- `stt dump` - write one transcript file per recording.
+- `stt vad AUDIO` - generate VAD clips and metadata only.
+- `stt query QUERY` - search stored transcripts.
+- `stt-query QUERY` - query-only CLI (no transcription commands).
+- `stt add-text TEXT` - store raw text without audio.
+- `stt dedupe` - remove duplicate audio entries (keeps latest by recorded_at).
+- `stt summarize-db` - summarize transcripts via Codex/Claude CLI.
+  - Use `--dump-only` to print the latest stored LLM response (no model call).
+
+Example (Codex only):
+
+```bash
+stt summarize-db --backend codex --codex-models o3
+```
+
+Example (Codex only, one day):
+
+```bash
+stt summarize-db --backend codex --codex-models o3 --recorded-from "2026-01-05T00:00:00-08:00" --recorded-to "2026-01-05T23:59:59-08:00"
+```
 
 Common options:
 
@@ -61,7 +79,7 @@ Common options:
 - `--no-ingest` (transcribe) to skip writing to the journal
 - `--recorded-from ISO` / `--recorded-to ISO` (query) to filter by recorded time
 
-Run `voice-gpt --help` or `voice-gpt COMMAND --help` for the full list.
+Run `stt --help` or `stt COMMAND --help` for the full list.
 
 ## Install
 
@@ -99,7 +117,7 @@ make venv install-cli-cpu
 Supported engines:
 
 - `faster-whisper` (default): CPU-only CTranslate2 backend; models by name (e.g., `base.en`).
-- `whisper.cpp`: GGUF models + local `whisper-cli` binary (set `VOICE_GPT_WHISPER_BIN`).
+- `whisper.cpp`: GGUF models + local `whisper-cli` binary (set `STT_WHISPER_BIN`).
 - `parakeet` (onnx-asr): ONNX models by name (e.g., `nemo-parakeet-tdt-0.6b-v3`).
 
 Common Whisper model names:
@@ -117,11 +135,12 @@ Optional VAD:
 Environment variables:
 
 ```bash
-export VOICE_GPT_WHISPER_BIN=/path/to/whisper.cpp/build/bin/whisper-cli
-export VOICE_GPT_EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
-export VOICE_GPT_PARAKEET_MODEL=nemo-parakeet-tdt-0.6b-v3
-export VOICE_GPT_PARAKEET_DIR=/path/to/parakeet-model
-export VOICE_GPT_PARAKEET_QUANT=int8
+export STT_WHISPER_BIN=/path/to/whisper.cpp/build/bin/whisper-cli
+export STT_EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
+export STT_OFFLINE=1
+export STT_PARAKEET_MODEL=nemo-parakeet-tdt-0.6b-v3
+export STT_PARAKEET_DIR=/path/to/parakeet-model
+export STT_PARAKEET_QUANT=int8
 ```
 
 ## Makefile defaults
@@ -133,7 +152,7 @@ The `Makefile` wraps common commands and sets defaults you can override per call
 - `MODEL=third_party/whisper.cpp/models/ggml-base.en.bin`
 - `K=5`
 - `VENV=.venv`
-- `VOICE_GPT=.venv/bin/voice-gpt`
+- `STT=.venv/bin/stt`
 - `WHISPER_DIR=third_party/whisper.cpp`
 - `WHISPER_BIN=third_party/whisper.cpp/build/bin/whisper-cli`
 
@@ -147,51 +166,51 @@ make query QUERY="memory pipeline" K=10
 
 ## Storage location
 
-The journal database lives at `~/.voice-gpt/journal.sqlite` by default. You can override:
+The journal database lives at `~/.stt/journal.sqlite` by default. You can override:
 
-- `VOICE_GPT_HOME` to change the base directory (defaults to `~/.voice-gpt`)
-- `VOICE_GPT_DB` to point directly at a specific SQLite file
+- `STT_HOME` to change the base directory (defaults to `~/.stt`)
+- `STT_DB` to point directly at a specific SQLite file
 
-The FAISS index lives alongside the database as `~/.voice-gpt/faiss.index` unless you set
-`VOICE_GPT_INDEX`.
+The FAISS index lives alongside the database as `~/.stt/faiss.index` unless you set
+`STT_INDEX`.
 
 ## Examples
 
 Skip conversion if you already have 16kHz mono WAV:
 
 ```bash
-voice-gpt transcribe /path/to/audio.wav /path/to/gguf-model --no-convert
+stt transcribe /path/to/audio.wav /path/to/gguf-model --no-convert
 ```
 
 Split speech into VAD clips and include timestamps:
 
 ```bash
-voice-gpt transcribe /path/to/audio.wav /path/to/gguf-model --vad
+stt transcribe /path/to/audio.wav /path/to/gguf-model --vad
 ```
 
 Only segment audio (no transcription):
 
 ```bash
-voice-gpt vad /path/to/audio.wav
+stt vad /path/to/audio.wav
 ```
 
 Query interactively:
 
 ```bash
-voice-gpt query --interactive
+stt query --interactive
 ```
 
 Filter by recorded time:
 
 ```bash
-voice-gpt query "memory pipeline" --recorded-from "2026-01-01T00:00:00-08:00" --recorded-to "2026-01-31T23:59:59-08:00"
+stt query "memory pipeline" --recorded-from "2026-01-01T00:00:00-08:00" --recorded-to "2026-01-31T23:59:59-08:00"
 ```
 
 ## Using as a library
 
 ```python
-from voice_gpt.settings import load_settings
-from voice_gpt.journal import add_entry, search
+from stt.settings import load_settings
+from stt.journal import add_entry, search
 
 settings = load_settings()
 add_entry(settings, text="My first note.")
@@ -200,8 +219,10 @@ results = search(settings, query="first note")
 
 ## Notes
 
-- FAISS index + SQLite live in `~/.voice-gpt` by default.
-- For a different location, set `VOICE_GPT_HOME` or `VOICE_GPT_DB`/`VOICE_GPT_INDEX`.
-- Embedding model downloads on first use; cache it to keep offline after that.
+- FAISS index + SQLite live in `~/.stt` by default.
+- For a different location, set `STT_HOME` or `STT_DB`/`STT_INDEX`.
+- Offline mode is enabled by default; set `STT_OFFLINE=0` to allow downloads.
+- Ensure embedding and transcription models are cached or referenced by local paths when offline.
 - `recorded_at` is stored in local time for each entry; for audio files it uses the file modified time.
 - `recorded_at` is included in embedding inputs to make time queries more discoverable.
+- Faster-whisper captures word timings by default; they are stored in metadata and printed/saved transcripts include elapsed markers every 5 minutes.

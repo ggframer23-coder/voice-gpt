@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help clean venv install install-cli install-faster install-cpu install-cli-cpu install-faster-cpu install-whisper download-model benchmark benchmark-parakeet init transcribe reingest ingest-dir query add-text dedupe guard-voice-gpt guard-whisper-bin guard-whisper-src guard-model-file
+.PHONY: help clean venv install install-cli install-faster install-cpu install-cli-cpu install-faster-cpu install-whisper download-model benchmark benchmark-parakeet init transcribe reingest ingest-dir query add-text dedupe guard-stt guard-whisper-bin guard-whisper-src guard-model-file
 
 SHELL := /usr/bin/env bash
 
@@ -7,7 +7,7 @@ UV ?= uv
 VENV ?= .venv
 UV_ENV ?= UV_PROJECT_ENVIRONMENT=$(VENV)
 UV_CMD = $(UV_ENV) $(UV)
-VOICE_GPT ?= $(VENV)/bin/voice-gpt
+STT ?= $(VENV)/bin/stt
 TORCH_CPU_INDEX ?= https://download.pytorch.org/whl/cpu
 PYPI_INDEX ?= https://pypi.org/simple
 TORCH_CPU_SPEC ?= torch==2.9.1+cpu
@@ -18,7 +18,7 @@ WHISPER_MODELS_DIR ?= $(WHISPER_DIR)/models
 MODEL_NAME ?= base.en
 MODEL ?= $(if $(filter faster-whisper,$(ENGINE)),$(MODEL_NAME),$(WHISPER_MODELS_DIR)/ggml-$(MODEL_NAME).bin)
 EXTENSIONS ?= wav,mp3,m4a,flac,ogg,opus,webm
-BENCH_OUTPUT_DIR ?= /tmp/voice-gpt-bench
+BENCH_OUTPUT_DIR ?= /tmp/stt-bench
 PARAKEET_MODEL ?= nemo-parakeet-tdt-0.6b-v3
 PARAKEET_DIR ?=
 PARAKEET_QUANT ?= int8
@@ -26,7 +26,6 @@ RUN_FASTER ?= 1
 RUN_PARAKEET ?= 1
 
 AUDIO ?= audio
-MODEL ?= base.en
 INPUT_DIR ?=
 QUERY ?=
 TEXT ?=
@@ -38,6 +37,10 @@ SAVE ?=
 ENGINE ?= faster-whisper
 NO_CONVERT ?= 0
 NO_INGEST ?= 0
+REINGEST_RECURSIVE ?= 0
+ifneq (,$(findstring r,$(MAKEFLAGS)))
+REINGEST_RECURSIVE := 1
+endif
 
 TRANSCRIBE_FLAGS :=
 ifeq ($(NO_CONVERT),1)
@@ -83,7 +86,7 @@ help:
 	@ echo "  install-cpu         Install CPU-only torch, then library"
 	@ echo "  install-cli-cpu     Install CPU-only torch, then CLI extra"
 	@ echo "  install-faster-cpu  Install CPU-only torch, then CLI+faster"
-	@ echo "  init                Initialize storage (~/.voice-gpt by default)"
+	@ echo "  init                Initialize storage (~/.stt by default)"
 	@ echo "  transcribe          Transcribe AUDIO with MODEL"
 	@ echo "  reingest            Force transcribe even if already ingested"
 	@ echo "  ingest-dir          Ingest INPUT_DIR with MODEL"
@@ -98,6 +101,7 @@ help:
 	@ echo "  make install-whisper download-model MODEL_NAME=base.en"
 	@ echo "  make ingest-dir INPUT_DIR=/path/audio MODEL=/path/model.gguf ARCHIVE_DIR=/path/processed"
 	@ echo "  make reingest AUDIO=/path/audio MODEL=/path/model.gguf"
+	@ echo "  make reingest -r AUDIO=/path/audio MODEL=/path/model.gguf"
 	@ echo "  make benchmark AUDIO=/path/audio.wav MODEL_NAME=base.en"
 	@ echo "  make query QUERY='memory pipeline' K=5"
 	@ echo "  make add-text TEXT='Today I worked on the memory pipeline.'"
@@ -126,12 +130,12 @@ download-model: guard-whisper-src
 	sh $(WHISPER_DIR)/models/download-ggml-model.sh $(MODEL_NAME) $(WHISPER_MODELS_DIR)
 
 benchmark: ENGINE=whispercpp
-benchmark: guard-voice-gpt guard-whisper-bin guard-AUDIO
-	AUDIO=$(AUDIO) VOICE_GPT=$(VOICE_GPT) WHISPER_BIN=$(WHISPER_BIN) WHISPER_DIR=$(WHISPER_DIR) MODEL_NAME=$(MODEL_NAME) OUTPUT_DIR=$(BENCH_OUTPUT_DIR) NO_CONVERT=$(NO_CONVERT) PARAKEET_MODEL=$(PARAKEET_MODEL) PARAKEET_DIR=$(PARAKEET_DIR) PARAKEET_QUANT=$(PARAKEET_QUANT) RUN_FASTER=$(RUN_FASTER) RUN_PARAKEET=$(RUN_PARAKEET) bash scripts/benchmark_transcribe.sh
+benchmark: guard-stt guard-whisper-bin guard-AUDIO
+	AUDIO=$(AUDIO) STT=$(STT) WHISPER_BIN=$(WHISPER_BIN) WHISPER_DIR=$(WHISPER_DIR) MODEL_NAME=$(MODEL_NAME) OUTPUT_DIR=$(BENCH_OUTPUT_DIR) NO_CONVERT=$(NO_CONVERT) PARAKEET_MODEL=$(PARAKEET_MODEL) PARAKEET_DIR=$(PARAKEET_DIR) PARAKEET_QUANT=$(PARAKEET_QUANT) RUN_FASTER=$(RUN_FASTER) RUN_PARAKEET=$(RUN_PARAKEET) bash scripts/benchmark_transcribe.sh
 
 benchmark-parakeet: ENGINE=whispercpp
-benchmark-parakeet: guard-voice-gpt guard-whisper-bin guard-AUDIO
-	AUDIO=$(AUDIO) VOICE_GPT=$(VOICE_GPT) WHISPER_BIN=$(WHISPER_BIN) WHISPER_DIR=$(WHISPER_DIR) MODEL_NAME=$(MODEL_NAME) OUTPUT_DIR=$(BENCH_OUTPUT_DIR) NO_CONVERT=$(NO_CONVERT) PARAKEET_MODEL=$(PARAKEET_MODEL) PARAKEET_DIR=$(PARAKEET_DIR) PARAKEET_QUANT=$(PARAKEET_QUANT) RUN_FASTER=0 RUN_PARAKEET=1 bash scripts/benchmark_transcribe.sh
+benchmark-parakeet: guard-stt guard-whisper-bin guard-AUDIO
+	AUDIO=$(AUDIO) STT=$(STT) WHISPER_BIN=$(WHISPER_BIN) WHISPER_DIR=$(WHISPER_DIR) MODEL_NAME=$(MODEL_NAME) OUTPUT_DIR=$(BENCH_OUTPUT_DIR) NO_CONVERT=$(NO_CONVERT) PARAKEET_MODEL=$(PARAKEET_MODEL) PARAKEET_DIR=$(PARAKEET_DIR) PARAKEET_QUANT=$(PARAKEET_QUANT) RUN_FASTER=0 RUN_PARAKEET=1 bash scripts/benchmark_transcribe.sh
 
 install-cpu:
 	$(UV_CMD) pip install --index-url $(TORCH_CPU_INDEX) $(TORCH_CPU_SPEC)
@@ -145,8 +149,8 @@ install-faster-cpu:
 	$(UV_CMD) pip install --index-url $(TORCH_CPU_INDEX) $(TORCH_CPU_SPEC)
 	$(UV_CMD) pip install -e ".[cli,faster]" --index-url $(PYPI_INDEX) --extra-index-url $(TORCH_CPU_INDEX) --constraint $(CPU_CONSTRAINTS)
 
-guard-voice-gpt:
-	@ if [ ! -x "$(VOICE_GPT)" ]; then echo "Missing $(VOICE_GPT). Run 'make venv install-cli-cpu' first."; exit 1; fi
+guard-stt:
+	@ if [ ! -x "$(STT)" ]; then echo "Missing $(STT). Run 'make venv install-cli-cpu' first."; exit 1; fi
 
 guard-whisper-src:
 	@ if [ ! -f "$(WHISPER_DIR)/models/download-ggml-model.sh" ]; then echo "Missing whisper.cpp checkout at $(WHISPER_DIR). Run 'make install-whisper' first."; exit 1; fi
@@ -165,45 +169,27 @@ else
 	@ if [ ! -f "$(MODEL)" ]; then echo "Missing model file $(MODEL). Run 'make download-model MODEL_NAME=base.en' or set MODEL=/path/to/model.bin"; exit 1; fi
 endif
 
-init: guard-voice-gpt
-	$(VOICE_GPT) init
+init: guard-stt
+	$(STT) init
 
-transcribe: guard-voice-gpt guard-whisper-bin guard-model-file guard-AUDIO guard-MODEL
+transcribe: guard-stt guard-whisper-bin guard-model-file guard-AUDIO guard-MODEL
 	@ if [ -d "$(AUDIO)" ]; then \
-		VOICE_GPT_WHISPER_BIN=$(WHISPER_BIN) $(VOICE_GPT) ingest-dir "$(AUDIO)" $(MODEL) $(INGEST_FLAGS); \
+		STT_WHISPER_BIN=$(WHISPER_BIN) $(STT) ingest-dir "$(AUDIO)" $(MODEL) $(INGEST_FLAGS); \
 	else \
-		VOICE_GPT_WHISPER_BIN=$(WHISPER_BIN) $(VOICE_GPT) transcribe "$(AUDIO)" $(MODEL) $(TRANSCRIBE_FLAGS); \
+		STT_WHISPER_BIN=$(WHISPER_BIN) $(STT) transcribe "$(AUDIO)" $(MODEL) $(TRANSCRIBE_FLAGS); \
 	fi
 
-reingest: guard-voice-gpt guard-whisper-bin guard-model-file guard-AUDIO guard-MODEL
-	@ if [ -d "$(AUDIO)" ]; then \
-		shopt -s nullglob; \
-		IFS=, read -ra exts <<< "$(EXTENSIONS)"; \
-		files=(); \
-		for ext in "$${exts[@]}"; do \
-			ext="$${ext#.}"; \
-			files+=( "$(AUDIO)"/*."$$ext" ); \
-		done; \
-		if [ "$${#files[@]}" -eq 0 ]; then \
-			echo "No audio files found."; \
-			exit 1; \
-		fi; \
-		for f in "$${files[@]}"; do \
-			[ -f "$$f" ] || continue; \
-			VOICE_GPT_WHISPER_BIN=$(WHISPER_BIN) $(VOICE_GPT) transcribe "$$f" $(MODEL) $(TRANSCRIBE_FLAGS); \
-		done; \
-	else \
-		VOICE_GPT_WHISPER_BIN=$(WHISPER_BIN) $(VOICE_GPT) transcribe "$(AUDIO)" $(MODEL) $(TRANSCRIBE_FLAGS); \
-	fi
+reingest: guard-stt guard-whisper-bin guard-model-file guard-AUDIO guard-MODEL
+	$(STT) reingest $(if $(REINGEST_RECURSIVE),-r,) "$(AUDIO)" $(MODEL) $(TRANSCRIBE_FLAGS)
 
-ingest-dir: guard-voice-gpt guard-whisper-bin guard-model-file guard-INPUT_DIR guard-MODEL
-	VOICE_GPT_WHISPER_BIN=$(WHISPER_BIN) $(VOICE_GPT) ingest-dir $(INPUT_DIR) $(MODEL) $(INGEST_FLAGS)
+ingest-dir: guard-stt guard-whisper-bin guard-model-file guard-INPUT_DIR guard-MODEL
+	STT_WHISPER_BIN=$(WHISPER_BIN) $(STT) ingest-dir $(INPUT_DIR) $(MODEL) $(INGEST_FLAGS)
 
-query: guard-voice-gpt guard-QUERY
-	$(VOICE_GPT) query "$(QUERY)" -k $(K) $(QUERY_FLAGS)
+query: guard-stt guard-QUERY
+	$(STT) query "$(QUERY)" -k $(K) $(QUERY_FLAGS)
 
-add-text: guard-voice-gpt guard-TEXT
-	$(VOICE_GPT) add-text "$(TEXT)"
+add-text: guard-stt guard-TEXT
+	$(STT) add-text "$(TEXT)"
 
 dedupe:
 	python3 scripts/dedupe_journal.py

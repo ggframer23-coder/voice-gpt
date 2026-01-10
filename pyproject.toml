@@ -3,13 +3,13 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "voice-gpt"
+name = "stt"
 version = "0.1.0"
 description = "Offline voice transcription, journaling, and memory retrieval"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
-authors = [{name = "voice-gpt"}]
+authors = [{name = "stt"}]
 dependencies = [
   "numpy>=1.24",
   "faiss-cpu>=1.7.4",
@@ -19,9 +19,11 @@ dependencies = [
 [project.optional-dependencies]
 cli = ["typer>=0.12", "rich>=13.7"]
 faster = ["faster-whisper>=1.0.3"]
+parakeet = ["onnx-asr[cpu,hub]"]
 
 [project.scripts]
-voice-gpt = "voice_gpt.cli:app"
+stt = "stt.cli:app"
+stt-query = "stt.query_cli:app"
 
 [tool.setuptools]
-packages = ["voice_gpt"]
+packages = ["stt"]

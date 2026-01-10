@@ -1,4 +1,4 @@
-"""voice-gpt package."""
+"""stt package."""
 
 from .settings import Settings
 from .journal import add_entry, search

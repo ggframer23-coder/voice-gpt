@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional
@@ -19,6 +21,8 @@ CREATE TABLE IF NOT EXISTS entries (
   text TEXT NOT NULL,
   source TEXT,
   audio_path TEXT,
+  audio_size_bytes INTEGER,
+  audio_duration_seconds REAL,
   metadata TEXT
 );
 
@@ -39,8 +43,9 @@ def init_store(settings: Settings) -> None:
         conn.executescript(SCHEMA)
         conn.commit()
         ensure_recorded_at_column(conn)
+        ensure_audio_columns(conn)
 
-    model = load_model(settings.model_name)
+    model = load_model(settings.model_name, offline=settings.offline)
     dim = model.get_sentence_embedding_dimension()
     index = load_or_create(settings.index_path, dim)
     save(index, settings.index_path)
@@ -53,12 +58,49 @@ def ensure_recorded_at_column(conn: sqlite3.Connection) -> None:
         conn.commit()
 
 
+def ensure_audio_columns(conn: sqlite3.Connection) -> None:
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(entries)").fetchall()]
+    if "audio_size_bytes" not in cols:
+        conn.execute("ALTER TABLE entries ADD COLUMN audio_size_bytes INTEGER")
+    if "audio_duration_seconds" not in cols:
+        conn.execute("ALTER TABLE entries ADD COLUMN audio_duration_seconds REAL")
+    conn.commit()
+
+
 def _local_iso_from_timestamp(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp).astimezone().isoformat()
 
 
 def _local_iso_now() -> str:
     return datetime.now().astimezone().isoformat()
+
+
+def _audio_duration_seconds(audio_path: Path) -> Optional[float]:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        result = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(audio_path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return None
 
 
 def chunk_text(text: str, max_words: int = 200, overlap: int = 40) -> List[str]:
@@ -89,21 +131,38 @@ def add_entry(
 ) -> int:
     init_store(settings)
     created_at = datetime.now(timezone.utc).isoformat()
+    audio_size_bytes: Optional[int] = None
+    audio_duration_seconds: Optional[float] = None
     if not recorded_at:
         if audio_path:
             audio_file = Path(audio_path)
             if audio_file.exists():
                 recorded_at = _local_iso_from_timestamp(audio_file.stat().st_mtime)
+                audio_size_bytes = audio_file.stat().st_size
+                audio_duration_seconds = _audio_duration_seconds(audio_file)
     if not recorded_at:
         recorded_at = _local_iso_now()
     meta_json = json.dumps(metadata or {}, ensure_ascii=True)
 
     with sqlite3.connect(settings.db_path) as conn:
         ensure_recorded_at_column(conn)
+        ensure_audio_columns(conn)
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO entries (created_at, recorded_at, text, source, audio_path, metadata) VALUES (?, ?, ?, ?, ?, ?)",
-            (created_at, recorded_at, text, source, audio_path, meta_json),
+            "INSERT INTO entries "
+            "(created_at, recorded_at, text, source, audio_path, audio_size_bytes, "
+            "audio_duration_seconds, metadata) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                created_at,
+                recorded_at,
+                text,
+                source,
+                audio_path,
+                audio_size_bytes,
+                audio_duration_seconds,
+                meta_json,
+            ),
         )
         entry_id = cur.lastrowid
 
@@ -119,8 +178,8 @@ def add_entry(
 
     if chunk_ids:
         embed_inputs = [f"Recorded at: {recorded_at}\n{chunk}" for chunk in chunks]
-        vectors = embed_texts(settings.model_name, embed_inputs)
-        model = load_model(settings.model_name)
+        vectors = embed_texts(settings.model_name, embed_inputs, offline=settings.offline)
+        model = load_model(settings.model_name, offline=settings.offline)
         dim = model.get_sentence_embedding_dimension()
         index = load_or_create(settings.index_path, dim)
         add_vectors(index, chunk_ids, vectors)
@@ -137,11 +196,11 @@ def search(
     recorded_to: Optional[str] = None,
 ) -> List[dict]:
     init_store(settings)
-    model = load_model(settings.model_name)
+    model = load_model(settings.model_name, offline=settings.offline)
     dim = model.get_sentence_embedding_dimension()
     index = load_or_create(settings.index_path, dim)
 
-    query_vec = embed_texts(settings.model_name, [query])[0]
+    query_vec = embed_texts(settings.model_name, [query], offline=settings.offline)[0]
     scores, ids = faiss_search(index, query_vec, k)
 
     results: List[dict] = []
