@@ -1,4 +1,5 @@
 .venv/
+/.beads/
 __pycache__/
 *.pyc
 *.pyo

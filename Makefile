@@ -79,6 +79,7 @@ help:
 	@ echo "  install             Install library (editable)"
 	@ echo "  install-cli         Install CLI extra (editable)"
 	@ echo "  install-faster      Install faster-whisper extra (editable)"
+	@ echo "  install-whisperx    Install WhisperX extra (diarization support)"
 	@ echo "  install-whisper     Build whisper.cpp (sets WHISPER_BIN path)"
 	@ echo "  download-model      Download a whisper.cpp ggml model"
 	@ echo "  benchmark           Compare whisper.cpp vs faster-whisper/parakeet timing"
@@ -121,6 +122,9 @@ install-cli:
 
 install-faster:
 	$(UV_CMD) pip install -e ".[cli,faster]"
+
+install-whisperx:
+	$(UV_CMD) pip install -e ".[whisperx]"
 
 install-whisper:
 	WHISPER_DIR=$(WHISPER_DIR) bash scripts/install_whisper_cpp.sh

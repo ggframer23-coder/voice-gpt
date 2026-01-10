@@ -95,6 +95,12 @@ Add `faster-whisper`:
 make venv install-faster
 ```
 
+Add `whisperx` (diarization pipeline):
+
+```bash
+make install-whisperx
+```
+
 Library only:
 
 ```bash
@@ -119,6 +125,7 @@ Supported engines:
 - `faster-whisper` (default): CPU-only CTranslate2 backend; models by name (e.g., `base.en`).
 - `whisper.cpp`: GGUF models + local `whisper-cli` binary (set `STT_WHISPER_BIN`).
 - `parakeet` (onnx-asr): ONNX models by name (e.g., `nemo-parakeet-tdt-0.6b-v3`).
+- `whisperx`: WhisperX transcription/diarization pipeline (install the `.[whisperx]` extra).
 
 Common Whisper model names:
 
@@ -131,6 +138,11 @@ Common Whisper model names:
 Optional VAD:
 
 - `whisper.cpp` VAD can segment audio before transcription (requires `vad-speech-segments` and a VAD model).
+
+WhisperX diarization:
+
+- Run `stt transcribe --engine whisperx --whisperx-diarize` to include speaker labeling (metadata is stored under `metadata["whisperx"]["diarization"]`).
+- Override `--whisperx-model`/`--whisperx-device` to select a different WhisperX model or device; `--whisperx-diarize-model` can point at another Pyannote model.
 
 Environment variables:
 

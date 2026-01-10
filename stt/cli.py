@@ -24,6 +24,7 @@ from .transcribe import (
     transcribe_audio,
     transcribe_audio_faster_whisper,
     transcribe_audio_parakeet,
+    transcribe_audio_whisperx,
 )
 from .vad import create_vad_clips
 
@@ -205,6 +206,10 @@ def _transcribe_to_text(
     parakeet_model: Optional[str],
     parakeet_dir: Optional[Path],
     parakeet_quant: Optional[str],
+    whisperx_model: str,
+    whisperx_device: str,
+    whisperx_diarize: bool,
+    whisperx_diarize_model: Optional[str],
 ) -> tuple[str, dict, list[dict], Optional[Path]]:
     metadata: dict = {}
     word_timestamps: list[dict] = []
@@ -216,6 +221,9 @@ def _transcribe_to_text(
         parakeet_quant,
         model_fallback=model,
     )
+    if engine == "whisperx" and vad:
+        raise TranscriptionError("WhisperX does not support VAD splitting.")
+
     if vad:
         output_dir = vad_dir or _default_vad_dir(audio)
         resolved_bin, resolved_model = _resolve_vad_paths(settings, vad_bin, vad_model)
@@ -231,13 +239,15 @@ def _transcribe_to_text(
             vad_bin=resolved_bin,
             vad_model=resolved_model,
         )
-        clips = metadata["segments"]
-        if not clips:
-            raise TranscriptionError("No speech segments detected.")
-        if engine == "faster-whisper":
-            text, word_timestamps = _transcribe_clips_faster_whisper(
-                clips,
-                model,
+            clips = metadata["segments"]
+            if not clips:
+                raise TranscriptionError("No speech segments detected.")
+            if engine == "whisperx":
+                raise TranscriptionError("WhisperX does not support VAD splitting.")
+            if engine == "faster-whisper":
+                text, word_timestamps = _transcribe_clips_faster_whisper(
+                    clips,
+                    model,
                 vad_timestamps,
                 settings.offline,
             )
@@ -271,6 +281,17 @@ def _transcribe_to_text(
             quantization=parakeet_quantization,
             convert=convert,
         )
+    elif engine == "whisperx":
+        text, wx_metadata, word_timestamps = transcribe_audio_whisperx(
+            audio_path=audio,
+            model_name=whisperx_model or model,
+            device=whisperx_device,
+            convert=convert,
+            diarize=whisperx_diarize,
+            diarize_model=whisperx_diarize_model,
+            offline=settings.offline,
+        )
+        metadata.update(wx_metadata)
     else:
         text = transcribe_audio(
             settings,
@@ -457,7 +478,7 @@ def transcribe(
         True,
         help="Include clip timestamps in transcript when VAD is enabled.",
     ),
-    engine: str = typer.Option("faster-whisper", help="Transcription engine: faster-whisper, whispercpp, or parakeet."),
+    engine: str = typer.Option("faster-whisper", help="Transcription engine: faster-whisper, whispercpp, parakeet, or whisperx."),
     parakeet_model: Optional[str] = typer.Option(
         None,
         help="Parakeet model name for onnx-asr (e.g., nemo-parakeet-tdt-0.6b-v3).",
@@ -469,6 +490,38 @@ def transcribe(
     parakeet_quant: Optional[str] = typer.Option(
         None,
         help="Parakeet quantization suffix (e.g., int8).",
+    ),
+    whisperx_model: str = typer.Option(
+        "medium",
+        help="Override model name when engine=whisperx.",
+    ),
+    whisperx_device: str = typer.Option(
+        "cpu",
+        help="Device for WhisperX (e.g., cpu, cuda).",
+    ),
+    whisperx_diarize: bool = typer.Option(
+        False,
+        help="Run WhisperX diarization (speaker labels only).",
+    ),
+    whisperx_diarize_model: Optional[str] = typer.Option(
+        None,
+        help="Pyannote diarization model identifier (WhisperX only).",
+    ),
+    whisperx_model: str = typer.Option(
+        "medium",
+        help="WhisperX model to use when engine=whisperx.",
+    ),
+    whisperx_device: str = typer.Option(
+        "cpu",
+        help="Device to run WhisperX on (cpu/cuda).",
+    ),
+    whisperx_diarize: bool = typer.Option(
+        False,
+        help="Run WhisperX diarization (speaker labeling).",
+    ),
+    whisperx_diarize_model: Optional[str] = typer.Option(
+        None,
+        help="Pyannote diarization model for WhisperX (default: pyannote/speaker-diarization).",
     ),
 ) -> None:
     """Transcribe audio offline with whisper.cpp or faster-whisper."""
@@ -489,11 +542,19 @@ def transcribe(
             vad_samples_overlap,
             vad_bin,
             vad_model,
-            vad_timestamps,
-            engine,
-            parakeet_model,
-            parakeet_dir,
-            parakeet_quant,
+        vad_timestamps,
+        engine,
+        parakeet_model,
+        parakeet_dir,
+        parakeet_quant,
+        whisperx_model,
+        whisperx_device,
+        whisperx_diarize,
+        whisperx_diarize_model,
+        whisperx_model,
+        whisperx_device,
+        whisperx_diarize,
+        whisperx_diarize_model,
         )
     except TranscriptionError as exc:
         raise typer.Exit(str(exc))
@@ -752,6 +813,22 @@ def ingest_dir(
         "wav,mp3,m4a,flac,ogg,opus,webm",
         help="Comma-separated list of extensions to ingest.",
     ),
+    whisperx_model: str = typer.Option(
+        "medium",
+        help="Override model name when engine=whisperx.",
+    ),
+    whisperx_device: str = typer.Option(
+        "cpu",
+        help="Device for WhisperX (e.g., cpu, cuda).",
+    ),
+    whisperx_diarize: bool = typer.Option(
+        False,
+        help="Run WhisperX diarization (speaker labels only).",
+    ),
+    whisperx_diarize_model: Optional[str] = typer.Option(
+        None,
+        help="Pyannote diarization model identifier (WhisperX only).",
+    ),
 ) -> None:
     """Ingest and transcribe all audio files in a directory."""
     settings = load_settings()
@@ -845,7 +922,18 @@ def ingest_dir(
                         model_dir=parakeet_model_dir,
                         quantization=parakeet_quantization,
                         convert=convert,
+                        )
+                elif engine == "whisperx":
+                    text, wx_metadata, word_timestamps = transcribe_audio_whisperx(
+                        audio_path=audio,
+                        model_name=whisperx_model or model,
+                        device=whisperx_device,
+                        convert=convert,
+                        diarize=whisperx_diarize,
+                        diarize_model=whisperx_diarize_model,
+                        offline=settings.offline,
                     )
+                    metadata.update(wx_metadata)
                 else:
                     text = transcribe_audio(
                         settings,
@@ -947,6 +1035,10 @@ def reingest(
                     parakeet_model,
                     parakeet_dir,
                     parakeet_quant,
+                    whisperx_model,
+                    whisperx_device,
+                    whisperx_diarize,
+                    whisperx_diarize_model,
                 )
             except TranscriptionError as exc:
                 print(f"Failed: {path} ({exc})")

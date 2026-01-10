@@ -220,3 +220,82 @@ def transcribe_audio_parakeet(
         converted = tmp_path / "converted.wav"
         convert_audio_ffmpeg(audio_path, converted)
         return run_transcribe(converted)
+
+
+def transcribe_audio_whisperx(
+    audio_path: Path,
+    model_name: str,
+    device: str = "cpu",
+    language: str = "en",
+    convert: bool = False,
+    diarize: bool = False,
+    diarize_model: Optional[str] = None,
+    offline: Optional[bool] = None,
+) -> tuple[str, list[dict[str, Any]], dict]:
+    if not audio_path.exists():
+        raise TranscriptionError(f"Audio file not found: {audio_path}")
+
+    def run_transcribe(input_path: Path) -> tuple[str, list[dict[str, Any]], dict]:
+        try:
+            import whisperx
+        except ImportError as exc:
+            raise TranscriptionError("whisperx is not installed; uv pip install -e '.[whisperx]'") from exc
+
+        offline_mode = _resolve_offline(offline)
+        if offline_mode:
+            apply_offline_env()
+
+        try:
+            model = whisperx.load_model(model_name, device=device)
+        except Exception as exc:
+            raise TranscriptionError(f"Failed to load WhisperX model '{model_name}': {exc}") from exc
+
+        result = model.transcribe(str(input_path), language=language)
+        align_model = whisperx.load_align_model(language_code=result["language"], device=device)
+        audio_meta = result.get("audio", {})
+        aligned = whisperx.align(
+            result["segments"],
+            align_model,
+            str(input_path),
+            audio_meta,
+            device=device,
+        )
+        segments = aligned.get("segments", [])
+        text = "\n".join(seg.get("text", "").strip() for seg in segments if seg.get("text"))
+        words = _collect_word_timestamps(segments)
+        metadata: dict[str, Any] = {
+            "whisperx": {
+                "model": model_name,
+                "language": result.get("language"),
+                "segments": segments,
+            }
+        }
+
+        if diarize:
+            diarize_name = diarize_model or "pyannote/speaker-diarization"
+            try:
+                diarizer = whisperx.load_diarize_model(diarize_name, device=device)
+                diarization = diarizer({"uri": input_path.stem, "audio": str(input_path)})
+                speaker_segments = []
+                for segment, _, label in diarization.itertracks(yield_label=True):
+                    speaker_segments.append(
+                        {
+                            "start": float(segment.start),
+                            "end": float(segment.end),
+                            "speaker": label,
+                        }
+                    )
+                metadata["whisperx"]["diarization"] = speaker_segments
+            except Exception as exc:
+                raise TranscriptionError(f"WhisperX diarization failed: {exc}") from exc
+
+        return text, words, metadata
+
+    if not convert:
+        return run_transcribe(audio_path)
+
+    with TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        converted = tmp_path / "converted.wav"
+        convert_audio_ffmpeg(audio_path, converted)
+        return run_transcribe(converted)
