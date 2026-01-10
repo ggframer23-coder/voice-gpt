@@ -102,11 +102,22 @@ def transcribe_audio(
 def _collect_word_timestamps(segments: list[Any], offset_seconds: float = 0.0) -> list[dict[str, Any]]:
     timestamps: list[dict[str, Any]] = []
     for segment in segments:
-        words = getattr(segment, "words", None) or []
+        # Handle both dict (WhisperX) and object (faster-whisper) formats
+        if isinstance(segment, dict):
+            words = segment.get("words", [])
+        else:
+            words = getattr(segment, "words", None) or []
+
         for word in words:
-            start = (word.start or 0.0) + offset_seconds
-            end = (word.end or 0.0) + offset_seconds
-            timestamps.append({"word": word.word, "start": start, "end": end})
+            if isinstance(word, dict):
+                start = (word.get("start") or 0.0) + offset_seconds
+                end = (word.get("end") or 0.0) + offset_seconds
+                word_text = word.get("word", "")
+            else:
+                start = (word.start or 0.0) + offset_seconds
+                end = (word.end or 0.0) + offset_seconds
+                word_text = word.word
+            timestamps.append({"word": word_text, "start": start, "end": end})
     return timestamps
 
 

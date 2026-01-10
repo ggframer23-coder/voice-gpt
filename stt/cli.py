@@ -210,6 +210,7 @@ def _transcribe_to_text(
     whisperx_device: str,
     whisperx_diarize: bool,
     whisperx_diarize_model: Optional[str],
+    whisperx_compute_type: Optional[str] = None,
 ) -> tuple[str, dict, list[dict], Optional[Path]]:
     metadata: dict = {}
     word_timestamps: list[dict] = []
@@ -239,15 +240,15 @@ def _transcribe_to_text(
             vad_bin=resolved_bin,
             vad_model=resolved_model,
         )
-            clips = metadata["segments"]
-            if not clips:
-                raise TranscriptionError("No speech segments detected.")
-            if engine == "whisperx":
-                raise TranscriptionError("WhisperX does not support VAD splitting.")
-            if engine == "faster-whisper":
-                text, word_timestamps = _transcribe_clips_faster_whisper(
-                    clips,
-                    model,
+        clips = metadata["segments"]
+        if not clips:
+            raise TranscriptionError("No speech segments detected.")
+        if engine == "whisperx":
+            raise TranscriptionError("WhisperX does not support VAD splitting.")
+        if engine == "faster-whisper":
+            text, word_timestamps = _transcribe_clips_faster_whisper(
+                clips,
+                model,
                 vad_timestamps,
                 settings.offline,
             )
@@ -282,14 +283,17 @@ def _transcribe_to_text(
             convert=convert,
         )
     elif engine == "whisperx":
-        text, wx_metadata, word_timestamps = transcribe_audio_whisperx(
+        duration_seconds = _audio_duration_seconds(audio)
+        auto_diarize = bool(duration_seconds and duration_seconds > 300)
+        text, word_timestamps, wx_metadata = transcribe_audio_whisperx(
             audio_path=audio,
             model_name=whisperx_model or model,
             device=whisperx_device,
             convert=convert,
-            diarize=whisperx_diarize,
+            diarize=whisperx_diarize or auto_diarize,
             diarize_model=whisperx_diarize_model,
             offline=settings.offline,
+            compute_type=whisperx_compute_type,
         )
         metadata.update(wx_metadata)
     else:
@@ -493,22 +497,6 @@ def transcribe(
     ),
     whisperx_model: str = typer.Option(
         "medium",
-        help="Override model name when engine=whisperx.",
-    ),
-    whisperx_device: str = typer.Option(
-        "cpu",
-        help="Device for WhisperX (e.g., cpu, cuda).",
-    ),
-    whisperx_diarize: bool = typer.Option(
-        False,
-        help="Run WhisperX diarization (speaker labels only).",
-    ),
-    whisperx_diarize_model: Optional[str] = typer.Option(
-        None,
-        help="Pyannote diarization model identifier (WhisperX only).",
-    ),
-    whisperx_model: str = typer.Option(
-        "medium",
         help="WhisperX model to use when engine=whisperx.",
     ),
     whisperx_device: str = typer.Option(
@@ -542,19 +530,15 @@ def transcribe(
             vad_samples_overlap,
             vad_bin,
             vad_model,
-        vad_timestamps,
-        engine,
-        parakeet_model,
-        parakeet_dir,
-        parakeet_quant,
-        whisperx_model,
-        whisperx_device,
-        whisperx_diarize,
-        whisperx_diarize_model,
-        whisperx_model,
-        whisperx_device,
-        whisperx_diarize,
-        whisperx_diarize_model,
+            vad_timestamps,
+            engine,
+            parakeet_model,
+            parakeet_dir,
+            parakeet_quant,
+            whisperx_model,
+            whisperx_device,
+            whisperx_diarize,
+            whisperx_diarize_model,
         )
     except TranscriptionError as exc:
         raise typer.Exit(str(exc))
@@ -924,7 +908,7 @@ def ingest_dir(
                         convert=convert,
                         )
                 elif engine == "whisperx":
-                    text, wx_metadata, word_timestamps = transcribe_audio_whisperx(
+                    text, word_timestamps, wx_metadata = transcribe_audio_whisperx(
                         audio_path=audio,
                         model_name=whisperx_model or model,
                         device=whisperx_device,
