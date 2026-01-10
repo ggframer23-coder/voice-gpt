@@ -144,6 +144,12 @@ WhisperX diarization:
 - Run `stt transcribe --engine whisperx --whisperx-diarize` to include speaker labeling (metadata is stored under `metadata["whisperx"]["diarization"]`).
 - Override `--whisperx-model`/`--whisperx-device` to select a different WhisperX model or device; `--whisperx-diarize-model` can point at another Pyannote model.
 
+**WhisperX compatibility notes:**
+
+- PyTorch 2.6+ changed `torch.load()` defaults which breaks WhisperX model loading. This package automatically patches `torch.load()` to use `weights_only=False` for backward compatibility.
+- CPU devices automatically use `compute_type="int8"` since CPUs don't support efficient float16 computation. Override with `WHISPERX_COMPUTE_TYPE=float32` if needed.
+- For CUDA/GPU devices, the default remains `compute_type="float16"`.
+
 Environment variables:
 
 ```bash
@@ -153,6 +159,7 @@ export STT_OFFLINE=1
 export STT_PARAKEET_MODEL=nemo-parakeet-tdt-0.6b-v3
 export STT_PARAKEET_DIR=/path/to/parakeet-model
 export STT_PARAKEET_QUANT=int8
+export WHISPERX_COMPUTE_TYPE=int8  # or float16, float32
 ```
 
 ## Makefile defaults
@@ -172,6 +179,8 @@ Example overrides:
 
 ```bash
 make install-whisper download-model MODEL_NAME=base.en
+make benchmark AUDIO=/path/to/audio.wav MODEL_NAME=base.en RUN_WHISPERX=1
+make benchmark AUDIO=/path/to/audio.wav MODEL_NAME=base.en RUN_WHISPERX_DIARIZE=1
 make transcribe AUDIO=/path/to/audio.wav MODEL=/path/to/model.gguf
 make query QUERY="memory pipeline" K=10
 ```
