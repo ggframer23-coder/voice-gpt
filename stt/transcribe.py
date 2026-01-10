@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# Import torch compatibility fixes FIRST, before any torch usage
+from . import torch_compat  # noqa: F401
+
 import os
 import subprocess
 from pathlib import Path
@@ -231,6 +234,7 @@ def transcribe_audio_whisperx(
     diarize: bool = False,
     diarize_model: Optional[str] = None,
     offline: Optional[bool] = None,
+    compute_type: Optional[str] = None,
 ) -> tuple[str, list[dict[str, Any]], dict]:
     if not audio_path.exists():
         raise TranscriptionError(f"Audio file not found: {audio_path}")
@@ -246,18 +250,21 @@ def transcribe_audio_whisperx(
             apply_offline_env()
 
         try:
-            model = whisperx.load_model(model_name, device=device)
+            # Default compute type based on device
+            default_compute_type = "int8" if device == "cpu" else "float16"
+            whisperx_compute_type = compute_type or os.environ.get("WHISPERX_COMPUTE_TYPE", default_compute_type)
+
+            model = whisperx.load_model(model_name, device=device, compute_type=whisperx_compute_type)
         except Exception as exc:
             raise TranscriptionError(f"Failed to load WhisperX model '{model_name}': {exc}") from exc
 
         result = model.transcribe(str(input_path), language=language)
-        align_model = whisperx.load_align_model(language_code=result["language"], device=device)
-        audio_meta = result.get("audio", {})
+        align_model, align_metadata = whisperx.load_align_model(language_code=result["language"], device=device)
         aligned = whisperx.align(
             result["segments"],
             align_model,
+            align_metadata,
             str(input_path),
-            audio_meta,
             device=device,
         )
         segments = aligned.get("segments", [])
