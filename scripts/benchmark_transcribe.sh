@@ -16,6 +16,10 @@ PARAKEET_DIR="${PARAKEET_DIR:-}"
 PARAKEET_QUANT="${PARAKEET_QUANT:-int8}"
 RUN_FASTER="${RUN_FASTER:-1}"
 RUN_PARAKEET="${RUN_PARAKEET:-1}"
+RUN_WHISPERX="${RUN_WHISPERX:-1}"
+RUN_WHISPERX_DIARIZE="${RUN_WHISPERX_DIARIZE:-0}"
+WHISPERX_MODEL="${WHISPERX_MODEL:-medium}"
+WHISPERX_DEVICE="${WHISPERX_DEVICE:-cpu}"
 
 if [ -z "$AUDIO" ]; then
   echo "AUDIO is required."
@@ -94,6 +98,37 @@ if [ "$RUN_PARAKEET" = "1" ]; then
   fi
 fi
 
+run_whisperx_compute() {
+  local label=$1
+  local compute_type=$2
+  local output=$3
+  run_timed "$label" \
+    env WHISPERX_COMPUTE_TYPE="$compute_type" \
+    "$STT" transcribe "$AUDIO" "$WHISPERX_MODEL" \
+    --engine whisperx --whisperx-model "$WHISPERX_MODEL" \
+    --whisperx-device "$WHISPERX_DEVICE" --no-ingest \
+    --save "$output" "${CONVERT_FLAG[@]}"
+}
+
+if [ "$RUN_WHISPERX" = "1" ]; then
+  if ! run_whisperx_compute "whisperx-fp16" "float16" "$OUTPUT_DIR/whisperx-fp16.txt"; then
+    echo "whisperx (float16) failed. Install with: make install-whisperx"
+  fi
+  if ! run_whisperx_compute "whisperx-fp32" "float32" "$OUTPUT_DIR/whisperx-fp32.txt"; then
+    echo "whisperx (float32) failed. Install with: make install-whisperx"
+  fi
+fi
+
+if [ "$RUN_WHISPERX_DIARIZE" = "1" ]; then
+  if ! run_timed "whisperx-diarize" \
+    "$STT" transcribe "$AUDIO" "$WHISPERX_MODEL" \
+    --engine whisperx --whisperx-model "$WHISPERX_MODEL" \
+    --whisperx-device "$WHISPERX_DEVICE" --whisperx-diarize --no-ingest \
+    --save "$OUTPUT_DIR/whisperx-diarize.txt" "${CONVERT_FLAG[@]}"; then
+    echo "whisperx diarize failed. Install with: make install-whisperx"
+  fi
+fi
+
 echo "Saved transcripts:"
 echo "  $OUTPUT_DIR/whispercpp.txt"
 if [ "$RUN_FASTER" = "1" ]; then
@@ -101,4 +136,11 @@ if [ "$RUN_FASTER" = "1" ]; then
 fi
 if [ "$RUN_PARAKEET" = "1" ]; then
   echo "  $OUTPUT_DIR/parakeet.txt"
+fi
+if [ "$RUN_WHISPERX" = "1" ]; then
+  echo "  $OUTPUT_DIR/whisperx-fp16.txt"
+  echo "  $OUTPUT_DIR/whisperx-fp32.txt"
+fi
+if [ "$RUN_WHISPERX_DIARIZE" = "1" ]; then
+  echo "  $OUTPUT_DIR/whisperx-diarize.txt"
 fi
