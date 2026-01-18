@@ -6,8 +6,8 @@ import sqlite3
 
 
 def _journal_path() -> str:
-    base_dir = os.environ.get("VOICE_GPT_HOME", os.path.expanduser("~/.voice-gpt"))
-    return os.environ.get("VOICE_GPT_DB", os.path.join(base_dir, "journal.sqlite"))
+    base_dir = os.environ.get("STT_HOME", os.path.expanduser("~/.stt"))
+    return os.environ.get("STT_DB", os.path.join(base_dir, "journal.sqlite"))
 
 
 def main() -> None:

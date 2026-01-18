@@ -32,4 +32,4 @@ if [ ! -x "$WHISPER_DIR/build/bin/whisper-cli" ]; then
 fi
 
 echo "Built whisper.cpp at $WHISPER_DIR/build/bin/whisper-cli"
-echo "Set: export VOICE_GPT_WHISPER_BIN=$WHISPER_DIR/build/bin/whisper-cli"
+echo "Set: export STT_WHISPER_BIN=$WHISPER_DIR/build/bin/whisper-cli"
