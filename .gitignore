@@ -12,3 +12,4 @@ chat_*.md
 audio/
 *.tmp
 tmp/
+.coverage
