@@ -1,6 +1,6 @@
 # stt
 
-Offline voice transcription, journaling, and memory retrieval with FAISS or ChromaDB.
+Offline voice transcription with multi-engine support and a local, searchable journal backed by SQLite plus FAISS or ChromaDB.
 
 ## Purpose
 
