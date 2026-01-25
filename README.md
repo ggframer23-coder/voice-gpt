@@ -1,11 +1,11 @@
 # stt
 
-Offline voice transcription, journaling, and memory retrieval with FAISS.
+Offline voice transcription, journaling, and memory retrieval with ChromaDB.
 
 ## Purpose
 
 - Transcribe audio locally with multiple engines.
-- Store transcripts in a local journal (SQLite + FAISS index).
+- Store transcripts in a local journal (SQLite + ChromaDB).
 - Query your transcript history by text and recorded time.
 
 ## Directory structure
@@ -195,12 +195,12 @@ make query QUERY="memory pipeline" K=10
 
 ## Storage location
 
-The journal database lives at `~/.stt/journal.sqlite` by default. You can override:
+The journal database lives at `~/.stt-chroma/journal.sqlite` by default. You can override:
 
-- `STT_HOME` to change the base directory (defaults to `~/.stt`)
+- `STT_HOME` to change the base directory (defaults to `~/.stt-chroma`)
 - `STT_DB` to point directly at a specific SQLite file
 
-The FAISS index lives alongside the database as `~/.stt/faiss.index` unless you set
+The ChromaDB index lives alongside the database at `~/.stt-chroma/chroma/` unless you set
 `STT_INDEX`.
 
 ## Examples
@@ -248,7 +248,7 @@ results = search(settings, query="first note")
 
 ## Notes
 
-- FAISS index + SQLite live in `~/.stt` by default.
+- ChromaDB index + SQLite live in `~/.stt-chroma` by default.
 - For a different location, set `STT_HOME` or `STT_DB`/`STT_INDEX`.
 - Offline mode is enabled by default; set `STT_OFFLINE=0` to allow downloads.
 - Ensure embedding and transcription models are cached or referenced by local paths when offline.
