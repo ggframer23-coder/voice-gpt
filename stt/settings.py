@@ -21,9 +21,9 @@ class Settings:
 
 
 def load_settings() -> Settings:
-    base_dir = Path(os.environ.get("STT_HOME", Path.home() / ".stt")).expanduser()
+    base_dir = Path(os.environ.get("STT_HOME", Path.home() / ".stt-chroma")).expanduser()
     db_path = Path(os.environ.get("STT_DB", base_dir / "journal.sqlite")).expanduser()
-    index_path = Path(os.environ.get("STT_INDEX", base_dir / "faiss.index")).expanduser()
+    index_path = Path(os.environ.get("STT_INDEX", base_dir / "chroma")).expanduser()
     model_name = os.environ.get("STT_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
     whisper_bin_raw = os.environ.get("STT_WHISPER_BIN")
     whisper_bin = Path(whisper_bin_raw).expanduser() if whisper_bin_raw else None

@@ -12,7 +12,7 @@ license = {text = "MIT"}
 authors = [{name = "stt"}]
 dependencies = [
   "numpy>=1.24",
-  "faiss-cpu>=1.7.4",
+  "chromadb>=0.4.0",
   "sentence-transformers>=2.6.1",
   "pytest>=7.0",
   "pytest-cov>=4.1",

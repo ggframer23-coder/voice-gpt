@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional
 
 from .embeddings import embed_texts, load_model
-from .faiss_index import add_vectors, load_or_create, save, search as faiss_search
+from .chroma_index import add_vectors, load_or_create, save, search as chroma_search
 from .settings import Settings
 
 
@@ -201,7 +201,7 @@ def search(
     index = load_or_create(settings.index_path, dim)
 
     query_vec = embed_texts(settings.model_name, [query], offline=settings.offline)[0]
-    scores, ids = faiss_search(index, query_vec, k)
+    scores, ids = chroma_search(index, query_vec, k)
 
     results: List[dict] = []
     with sqlite3.connect(settings.db_path) as conn:

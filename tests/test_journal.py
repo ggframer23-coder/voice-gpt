@@ -16,19 +16,19 @@ class FakeModel:
         return self._dim
 
 
-class FakeIndex:
+class FakeCollection:
     def __init__(self) -> None:
         self.added = []
 
-    def add_with_ids(self, vectors, ids) -> None:
-        self.added.append((vectors, ids))
+    def add(self, ids, embeddings) -> None:
+        self.added.append((ids, embeddings))
 
 
 def _settings(tmp_path: Path) -> Settings:
     return Settings(
         base_dir=tmp_path,
         db_path=tmp_path / "journal.sqlite",
-        index_path=tmp_path / "faiss.index",
+        index_path=tmp_path / "chroma",
         model_name="fake-model",
         offline=True,
         whisper_bin=None,
@@ -71,10 +71,10 @@ def test_audio_duration_missing_ffprobe(monkeypatch, tmp_path) -> None:
 
 def test_add_entry_writes_db(tmp_path, monkeypatch) -> None:
     settings = _settings(tmp_path)
-    fake_index = FakeIndex()
+    fake_collection = FakeCollection()
 
     monkeypatch.setattr(journal, "load_model", lambda *_args, **_kwargs: FakeModel())
-    monkeypatch.setattr(journal, "load_or_create", lambda *_args, **_kwargs: fake_index)
+    monkeypatch.setattr(journal, "load_or_create", lambda *_args, **_kwargs: fake_collection)
     monkeypatch.setattr(journal, "save", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(journal, "add_vectors", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(journal, "embed_texts", lambda *_args, **_kwargs: [[0.1, 0.2, 0.3]])
@@ -104,10 +104,10 @@ def test_add_entry_writes_db(tmp_path, monkeypatch) -> None:
 
 def test_search_returns_results(tmp_path, monkeypatch) -> None:
     settings = _settings(tmp_path)
-    fake_index = FakeIndex()
+    fake_collection = FakeCollection()
 
     monkeypatch.setattr(journal, "load_model", lambda *_args, **_kwargs: FakeModel())
-    monkeypatch.setattr(journal, "load_or_create", lambda *_args, **_kwargs: fake_index)
+    monkeypatch.setattr(journal, "load_or_create", lambda *_args, **_kwargs: fake_collection)
     monkeypatch.setattr(journal, "save", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(journal, "add_vectors", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(journal, "embed_texts", lambda *_args, **_kwargs: [[0.1, 0.2, 0.3]])
@@ -123,7 +123,7 @@ def test_search_returns_results(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setattr(
         journal,
-        "faiss_search",
+        "chroma_search",
         lambda *_args, **_kwargs: (np.array([0.9]), np.array([chunk_id])),
     )
 
