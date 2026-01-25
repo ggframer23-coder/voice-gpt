@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "stt"
 version = "0.1.0"
-description = "Offline voice transcription, journaling, and memory retrieval"
+description = "Offline voice transcription with multi-engine support and a local, searchable journal backed by SQLite plus FAISS or ChromaDB"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
