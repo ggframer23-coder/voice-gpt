@@ -712,6 +712,10 @@ def audio(
         )
         return
     settings = load_settings()
+    duration_seconds = _audio_duration_seconds(audio)
+    duration_minutes = duration_seconds / 60 if duration_seconds else None
+    duration_str = f"{duration_minutes:.1f} min" if duration_minutes else "unknown"
+    builtins.print(f"Transcribing: {audio.name} ({duration_str})")
     try:
         text, metadata, word_timestamps, vad_metadata_path = _transcribe_to_text(
             settings,
