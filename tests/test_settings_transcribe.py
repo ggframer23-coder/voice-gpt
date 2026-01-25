@@ -13,6 +13,7 @@ def test_load_settings_from_env(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("STT_HOME", str(base_dir))
     monkeypatch.setenv("STT_DB", str(tmp_path / "db.sqlite"))
     monkeypatch.setenv("STT_INDEX", str(tmp_path / "index.faiss"))
+    monkeypatch.setenv("STT_INDEX_BACKEND", "chroma")
     monkeypatch.setenv("STT_EMBED_MODEL", "fake-model")
     monkeypatch.setenv("STT_WHISPER_BIN", "/bin/whisper")
     monkeypatch.setenv("STT_VAD_BIN", "/bin/vad")
@@ -25,6 +26,7 @@ def test_load_settings_from_env(monkeypatch, tmp_path) -> None:
     loaded = settings.load_settings()
 
     assert loaded.base_dir == base_dir
+    assert loaded.index_backend == "chroma"
     assert loaded.model_name == "fake-model"
     assert loaded.offline is False
     assert str(loaded.whisper_bin) == "/bin/whisper"

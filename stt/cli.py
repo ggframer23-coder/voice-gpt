@@ -520,7 +520,7 @@ def help(ctx: typer.Context) -> None:
 
 @app.command()
 def init() -> None:
-    """Initialize local storage and FAISS index."""
+    """Initialize local storage and vector index."""
     from .journal import init_store
 
     settings = load_settings()
@@ -1868,7 +1868,7 @@ def query(
     recorded_to: Optional[str] = typer.Option(None, help="Filter by recorded_at <= (ISO 8601)."),
     interactive: bool = typer.Option(False, "--interactive", "-i", help="Prompt for queries in a loop."),
 ) -> None:
-    """Search the journal using FAISS."""
+    """Search the journal using the configured index backend."""
     from .journal import search
 
     settings = load_settings()

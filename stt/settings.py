@@ -10,6 +10,7 @@ class Settings:
     base_dir: Path
     db_path: Path
     index_path: Path
+    index_backend: str
     model_name: str
     offline: bool
     whisper_bin: Path | None
@@ -21,9 +22,12 @@ class Settings:
 
 
 def load_settings() -> Settings:
-    base_dir = Path(os.environ.get("STT_HOME", Path.home() / ".stt")).expanduser()
+    index_backend = os.environ.get("STT_INDEX_BACKEND", "faiss").strip().lower()
+    default_home = Path.home() / (".stt-chroma" if index_backend in {"chroma", "chromadb"} else ".stt")
+    base_dir = Path(os.environ.get("STT_HOME", default_home)).expanduser()
     db_path = Path(os.environ.get("STT_DB", base_dir / "journal.sqlite")).expanduser()
-    index_path = Path(os.environ.get("STT_INDEX", base_dir / "faiss.index")).expanduser()
+    default_index = base_dir / ("chroma" if index_backend in {"chroma", "chromadb"} else "faiss.index")
+    index_path = Path(os.environ.get("STT_INDEX", default_index)).expanduser()
     model_name = os.environ.get("STT_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
     whisper_bin_raw = os.environ.get("STT_WHISPER_BIN")
     whisper_bin = Path(whisper_bin_raw).expanduser() if whisper_bin_raw else None
@@ -49,6 +53,7 @@ def load_settings() -> Settings:
         base_dir=base_dir,
         db_path=db_path,
         index_path=index_path,
+        index_backend=index_backend,
         model_name=model_name,
         offline=offline,
         whisper_bin=whisper_bin,

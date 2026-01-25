@@ -29,6 +29,7 @@ def _settings(tmp_path: Path) -> Settings:
         base_dir=tmp_path,
         db_path=tmp_path / "journal.sqlite",
         index_path=tmp_path / "faiss.index",
+        index_backend="faiss",
         model_name="fake-model",
         offline=True,
         whisper_bin=None,
@@ -123,7 +124,7 @@ def test_search_returns_results(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setattr(
         journal,
-        "faiss_search",
+        "index_search",
         lambda *_args, **_kwargs: (np.array([0.9]), np.array([chunk_id])),
     )
 

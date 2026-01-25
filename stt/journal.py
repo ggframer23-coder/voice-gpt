@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional
 
 from .embeddings import embed_texts, load_model
-from .faiss_index import add_vectors, load_or_create, save, search as faiss_search
+from .index_backend import add_vectors, load_or_create, save, search as index_search
 from .settings import Settings
 
 
@@ -47,8 +47,8 @@ def init_store(settings: Settings) -> None:
 
     model = load_model(settings.model_name, offline=settings.offline)
     dim = model.get_sentence_embedding_dimension()
-    index = load_or_create(settings.index_path, dim)
-    save(index, settings.index_path)
+    index = load_or_create(settings.index_backend, settings.index_path, dim)
+    save(settings.index_backend, index, settings.index_path)
 
 
 def ensure_recorded_at_column(conn: sqlite3.Connection) -> None:
@@ -181,9 +181,9 @@ def add_entry(
         vectors = embed_texts(settings.model_name, embed_inputs, offline=settings.offline)
         model = load_model(settings.model_name, offline=settings.offline)
         dim = model.get_sentence_embedding_dimension()
-        index = load_or_create(settings.index_path, dim)
-        add_vectors(index, chunk_ids, vectors)
-        save(index, settings.index_path)
+        index = load_or_create(settings.index_backend, settings.index_path, dim)
+        add_vectors(settings.index_backend, index, chunk_ids, vectors)
+        save(settings.index_backend, index, settings.index_path)
 
     return entry_id
 
@@ -198,10 +198,10 @@ def search(
     init_store(settings)
     model = load_model(settings.model_name, offline=settings.offline)
     dim = model.get_sentence_embedding_dimension()
-    index = load_or_create(settings.index_path, dim)
+    index = load_or_create(settings.index_backend, settings.index_path, dim)
 
     query_vec = embed_texts(settings.model_name, [query], offline=settings.offline)[0]
-    scores, ids = faiss_search(index, query_vec, k)
+    scores, ids = index_search(settings.index_backend, index, query_vec, k)
 
     results: List[dict] = []
     with sqlite3.connect(settings.db_path) as conn:

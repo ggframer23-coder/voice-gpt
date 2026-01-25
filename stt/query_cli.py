@@ -30,7 +30,7 @@ def query(
     recorded_to: Optional[str] = typer.Option(None, help="Filter by recorded_at <= (ISO 8601)."),
     interactive: bool = typer.Option(False, "--interactive", "-i", help="Prompt for queries in a loop."),
 ) -> None:
-    """Search the journal using FAISS."""
+    """Search the journal using the configured index backend."""
     settings = load_settings()
 
     def run_query(text: str) -> None:
